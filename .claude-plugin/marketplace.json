@@ -1,6 +1,6 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "gelli-plugins",
+  "name": "gelli-skills",
   "description": "Chris Heizmann's Claude Code plugins",
   "owner": {
     "name": "Chris Heizmann",

@@ -16,7 +16,7 @@ The guard is deliberately independent of which model the session runs on: hook i
 
 ```
 /plugin marketplace add gelli/skills
-/plugin install model-routing@gelli-plugins
+/plugin install model-routing@gelli-skills
 ```
 
 If your `CLAUDE.md` still includes a copy of the routing rules, remove it after installing. The plugin ships only the generic rules. Keep personal or environment-specific policy in `CLAUDE.md`: pre-authorisation text (for example "Haiku and Sonnet spawns need no confirmation") and routing to agents that only exist on your machine (for example a browser-automation agent).

@@ -8,10 +8,10 @@ Add the marketplace once, then install plugins from it:
 
 ```
 /plugin marketplace add gelli/skills
-/plugin install <plugin-name>@gelli-plugins
+/plugin install <plugin-name>@gelli-skills
 ```
 
-Pull updates with `/plugin marketplace update gelli-plugins`.
+Pull updates with `/plugin marketplace update gelli-skills`.
 
 ## Layout
 
