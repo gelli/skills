@@ -25,15 +25,6 @@ If your `CLAUDE.md` still includes a copy of the routing rules, remove it after 
 
 The guard parses hook input with `jq`, falling back to `python3`. With neither installed it lets the call through and logs a note on stderr.
 
-## Files
-
-```
-routing.md                    the rules injected every session
-hooks/hooks.json              hook registration
-hooks/inject-rules.sh         SessionStart: prints routing.md to stdout inside <model-routing> tags
-hooks/check-agent-model.sh    PreToolUse(Agent): deny on missing model, fable, or fork
-tests/test-hooks.sh           replays the guard's deny/allow matrix on both parsers, checks the injector
-```
 
 ## Test
 

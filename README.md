@@ -13,14 +13,6 @@ Add the marketplace once, then install plugins from it:
 
 Pull updates with `/plugin marketplace update gelli-skills`.
 
-## Layout
-
-```
-.claude-plugin/marketplace.json   marketplace manifest
-plugins/<name>/                   one directory per plugin
-  .claude-plugin/plugin.json      plugin manifest (optional)
-  skills/, commands/, agents/     plugin components
-```
 
 ## Adding a plugin
 
