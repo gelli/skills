@@ -1,0 +1,17 @@
+{
+  "name": "model-routing",
+  "version": "0.1.0",
+  "description": "Orchestrator-first model routing: injects the tier rules (Haiku/Sonnet/Opus, Fable orchestrator-only) into every session and blocks Agent spawns that omit an explicit model, pass fable, or fork.",
+  "author": {
+    "name": "Chris Heizmann"
+  },
+  "keywords": [
+    "model-routing",
+    "subagents",
+    "delegation",
+    "hooks"
+  ],
+  "homepage": "https://github.com/gelli/skills",
+  "repository": "https://github.com/gelli/skills",
+  "license": "MIT"
+}

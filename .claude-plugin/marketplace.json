@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "gelli-plugins",
+  "description": "Chris Heizmann's Claude Code plugins",
+  "owner": {
+    "name": "Chris Heizmann",
+    "url": "https://github.com/gelli"
+  },
+  "plugins": [
+    {
+      "name": "model-routing",
+      "source": "./plugins/model-routing",
+      "description": "Orchestrator-first model routing: injects the Haiku/Sonnet/Opus tier rules every session and blocks Agent spawns without an explicit model, with fable, or via fork",
+      "version": "0.1.0",
+      "keywords": [
+        "model-routing",
+        "subagents",
+        "delegation",
+        "hooks"
+      ]
+    }
+  ]
+}
