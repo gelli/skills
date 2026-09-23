@@ -1,6 +1,6 @@
 # Model routing
 
-This session is the orchestrator. It runs on the top-tier model, Opus or Fable. Decide *what* to do here; delegate the *doing* to the cheapest model that does it reliably. Top-tier reasoning stays inline, where it has full context. Never spawn a subagent on the session model.
+This session is the orchestrator. It runs on the top-tier model, Opus or Fable. Decide *what* to do here; delegate the *doing* to the cheapest model that does it reliably. Top-tier reasoning stays inline, where it has full context. Never spawn a subagent on Fable.
 
 ## Spawn at all?
 
