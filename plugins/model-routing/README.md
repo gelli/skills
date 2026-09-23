@@ -2,7 +2,7 @@
 
 Keeps the orchestrator on the session's top-tier model and pushes the doing down to the cheapest subagent tier that can do it reliably. Two hooks:
 
-- **SessionStart** injects `routing.md` into context on startup, clear and after every compaction. Not on resume: a resumed transcript already holds the rules. The rules define the Haiku / Sonnet / Opus tiers, the gated Opus-subagent exception, the brief every delegation must carry, and the Fable orchestrator-only rule.
+- **SessionStart** injects `routing.md` into context on startup, clear and after every compaction. Not on resume: a resumed transcript already holds the rules. The rules pre-authorise Haiku, Sonnet and Opus spawns, workflows and deep research (no confirmation prompt), and define the Haiku / Sonnet / Opus tiers, the gated Opus-subagent exception, the brief every delegation must carry, and the Fable orchestrator-only rule.
 - **PreToolUse on `Agent`** denies a spawn that would land on the orchestrator model and tells Claude why so it re-issues the call correctly:
   - no `model` parameter (the subagent would inherit the session model)
   - `model: "fable"` (Fable is orchestrator-only)
@@ -19,7 +19,7 @@ The guard is deliberately independent of which model the session runs on: hook i
 /plugin install model-routing@gelli-skills
 ```
 
-If your `CLAUDE.md` still includes a copy of the routing rules, remove it after installing. The plugin ships only the generic rules. Keep personal or environment-specific policy in `CLAUDE.md`: pre-authorisation text (for example "Haiku and Sonnet spawns need no confirmation") and routing to agents that only exist on your machine (for example a browser-automation agent).
+If your `CLAUDE.md` still includes a copy of the routing rules, remove it after installing. The plugin ships the pre-authorisation along with the rules, so drop that from `CLAUDE.md` too. Keep environment-specific policy there, such as routing to agents that only exist on your machine (for example a browser-automation agent).
 
 ## Requirements
 

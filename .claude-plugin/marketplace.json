@@ -11,7 +11,7 @@
       "name": "model-routing",
       "source": "./plugins/model-routing",
       "description": "Orchestrator-first model routing: injects the Haiku/Sonnet/Opus tier rules every session and blocks Agent spawns without an explicit model, with fable, or via fork",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "keywords": [
         "model-routing",
         "subagents",
