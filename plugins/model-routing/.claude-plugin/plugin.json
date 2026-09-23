@@ -1,6 +1,6 @@
 {
   "name": "model-routing",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Orchestrator-first model routing: injects the tier rules (Haiku/Sonnet/Opus, Fable orchestrator-only) into every session and blocks Agent spawns that omit an explicit model, pass fable, or fork.",
   "author": {
     "name": "Chris Heizmann"
