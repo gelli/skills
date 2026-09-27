@@ -2,11 +2,13 @@
 # headroom PreToolUse hook for the Agent tool: enforces that a role (scout,
 # implementer, reviewer) may only be spawned at its default model or higher,
 # never lower, never fable/mythos, never "inherit", and never via
-# subagent_type "fork". Explore inherits the main session's model, capped at
-# Opus, not its own; it and Plan pass through unchecked for now (denying a
-# model-less Explore/Plan spawn is deferred until there is usage data).
-# subagent_type empty, "general-purpose", or "claude" need an explicit model.
-# Any other named agent type is left to its own definition.
+# subagent_type "fork". A role also may not be spawned with "name" set: that
+# would make it an agent-teams teammate rather than a worker. Explore
+# inherits the main session's model, capped at Opus, not its own; it and
+# Plan pass through unchecked for now (denying a model-less Explore/Plan
+# spawn is deferred until there is usage data). subagent_type empty,
+# "general-purpose", or "claude" need an explicit model. Any other named
+# agent type is left to its own definition.
 #
 # Rank: haiku=1, sonnet=2, opus=3, classified by case-insensitive substring so
 # full model IDs work too (claude-opus-5-5, us.anthropic.claude-haiku-4-5...,
@@ -24,7 +26,8 @@ hr_read_input
 fields=$(hr_fields '
   "parsed",
   (.tool_input.subagent_type // ""),
-  (.tool_input.model // "")
+  (.tool_input.model // ""),
+  (.tool_input.name // "")
 ' '
 import json, sys
 try:
@@ -35,6 +38,7 @@ t = d.get("tool_input") or {}
 print("parsed")
 print(t.get("subagent_type") or "")
 print(t.get("model") or "")
+print(t.get("name") or "")
 ')
 rc=$?
 if [ $rc -ne 0 ] || [ "$(printf '%s\n' "$fields" | sed -n 1p)" != parsed ]; then
@@ -44,6 +48,7 @@ fi
 
 subagent_type=$(printf '%s\n' "$fields" | sed -n 2p)
 model=$(printf '%s\n' "$fields" | sed -n 3p)
+name=$(printf '%s\n' "$fields" | sed -n 4p)
 model_lc=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]')
 role=${subagent_type#headroom:}
 
@@ -81,6 +86,12 @@ rank_of() {
 
 case "$role" in
   scout|implementer|reviewer)
+    # 3b. headroom roles are workers, not agent-teams teammates: a "name"
+    # would spawn one, and a teammate built from a role's definition may not
+    # keep its disallowedTools limit.
+    if [ -n "$name" ]; then
+      deny_and_log "headroom: headroom:$role was spawned with \"name\" set, which would make it an agent-teams teammate instead of a worker. Drop \"name\" and re-issue the call as a plain worker spawn."
+    fi
     if [ "$role" = scout ]; then
       default_rank=1
       default_name=haiku
