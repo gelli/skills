@@ -35,7 +35,7 @@ Known limitation: the Bash block reads commands as text. A `<<WORD` inside a quo
 - `block_patterns`: extra extended-regex patterns, matched the same way as the built-in list, for commands specific to your repo. Not a safety guard; see Safety below.
 - `HEADROOM_BLOCKS=0`: an environment kill switch that disables blocking outright, independent of `hard_blocks`.
 
-Recommended: set `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` as a fallback for any agent spawned without an explicit model, including workflow agents that don't name one; headroom's own three roles always carry a default and don't need it. Also recommended: on any Agent call that sets `isolation: "worktree"`, also pass `"worktree": {"baseRef": "head"}`. The default, `"fresh"`, branches the worktree from the repo's default branch, so an isolated worker won't see this branch's commits unless you say `"head"`.
+Recommended: set `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` as a fallback for any agent spawned without an explicit model, including workflow agents that don't name one; headroom's own three roles always carry a default and don't need it. Also recommended: set `"worktree": {"baseRef": "head"}` in your settings.json, so any Agent call that sets `isolation: "worktree"` picks it up. The default, `"fresh"`, branches the worktree from the repo's default branch, so an isolated worker won't see this branch's commits unless you say `"head"`.
 
 ## Safety
 
