@@ -81,9 +81,15 @@ bytes=$(printf '%s' "$message" | wc -c | tr -d '[:space:]')
 # line), so a huge transcript is never loaded whole. Assistant entries can
 # repeat the same message.id across content-block lines; this dedups by
 # keeping the last usage seen per id, then sums once per id. model is the
-# last assistant model seen. A missing/unreadable file, an unparseable one,
-# or an unrecognised line never aborts the hook: they fall back to "missing"
-# or "unparsed" with all-zero counts.
+# last assistant model seen. Entries with message.model "<synthetic>" are
+# skipped entirely (not counted as a turn, not dedup-stored): Claude Code
+# writes that model with all-zero usage for entries like "No response
+# requested." or "API Error: Connection lost...", and counting one would
+# both undercount nothing (its usage is zero either way) but overcount
+# turns and could leave "<synthetic>" as the logged model for a worker
+# whose last entry is one of these. A missing/unreadable file, an
+# unparseable one, or an unrecognised line never aborts the hook: they fall
+# back to "missing" or "unparsed" with all-zero counts.
 hr_transcript_stats() {
   hr_ts_path=$1
   if [ -z "$hr_ts_path" ] || [ ! -r "$hr_ts_path" ]; then
@@ -94,7 +100,7 @@ hr_transcript_stats() {
     hr_ts_out=$(jq -Rn -r '
       reduce (inputs | fromjson? // empty) as $e (
         {"ids":{},"model":""};
-        if ($e.type // "") == "assistant" and (($e.message.id // "") != "") then
+        if ($e.type // "") == "assistant" and (($e.message.id // "") != "") and (($e.message.model // "") != "<synthetic>") then
           .ids[$e.message.id] = ($e.message.usage // {})
           | .model = ($e.message.model // .model)
         else . end
@@ -125,6 +131,8 @@ try:
                 continue
             if e.get("type") == "assistant":
                 msg = e.get("message") or {}
+                if msg.get("model") == "<synthetic>":
+                    continue
                 mid = msg.get("id")
                 if mid:
                     ids[mid] = msg.get("usage") or {}

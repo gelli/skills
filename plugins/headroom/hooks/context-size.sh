@@ -7,7 +7,11 @@
 # Reads the hook input's transcript_path and looks only at its tail (`tail
 # -n 200`), never the whole file: a transcript can run to hundreds of MB.
 # Within that tail, it finds the last assistant entry that carries
-# message.usage and logs context_tokens = input_tokens +
+# message.usage and whose message.model is not "<synthetic>" -- Claude Code
+# writes that model with all-zero usage for entries like "No response
+# requested." or "API Error: Connection lost...", and a turn that ends on
+# one of those must not corrupt the context-growth curve with a zero -- and
+# logs context_tokens = input_tokens +
 # cache_read_input_tokens + cache_creation_input_tokens (the size of what
 # the next turn's prompt re-sends), plus model. It deliberately does not sum
 # across entries or dedup by message.id the way report-warning.sh does:
@@ -54,7 +58,7 @@ if [ "${HEADROOM_PARSER:-auto}" != python3 ] && command -v jq >/dev/null 2>&1; t
   stats=$(tail -n "$TAIL_LINES" "$transcript_path" 2>/dev/null | jq -Rn -r '
     (reduce (inputs | fromjson? // empty) as $e (
       {};
-      if ($e.type // "") == "assistant" and (($e.message.usage // null) != null) then
+      if ($e.type // "") == "assistant" and (($e.message.usage // null) != null) and (($e.message.model // "") != "<synthetic>") then
         { model: ($e.message.model // .model // ""), usage: $e.message.usage }
       else . end
     )) as $last
@@ -81,6 +85,8 @@ for line in sys.stdin:
     if e.get("type") != "assistant":
         continue
     msg = e.get("message") or {}
+    if msg.get("model") == "<synthetic>":
+        continue
     usage = msg.get("usage")
     if not usage:
         continue

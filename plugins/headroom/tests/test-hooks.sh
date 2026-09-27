@@ -682,6 +682,27 @@ JSONL
     fi
   fi
 
+  # A worker transcript whose last entry is "<synthetic>" (Claude Code's
+  # model for entries like "No response requested." or "API Error:
+  # Connection lost...", always with all-zero usage) must not be counted as
+  # a turn or overwrite the real last model: same fixture as above, plus one
+  # trailing synthetic entry. turns/sums stay 2/17/23/150/9 and model stays
+  # claude-sonnet-5, not "<synthetic>".
+  fixture_synth="$tmp/report-warning-fixture-synthetic.jsonl"
+  cat "$fixture" >"$fixture_synth"
+  echo '{"type":"assistant","message":{"id":"msg_synth","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}' >>"$fixture_synth"
+  data_synth="$tmp/report-warning-data-synthetic"
+  rm -rf "$data_synth"
+  mkdir -p "$data_synth"
+  input=$(printf '{"agent_type":"headroom:scout","agent_id":"agent-synth","agent_transcript_path":"%s","last_assistant_message":"short report"}' "$fixture_synth")
+  printf '%s' "$input" | CLAUDE_PLUGIN_DATA="$data_synth" "$hooks/report-warning.sh" >/dev/null 2>&1
+  log_synth=$(cat "$data_synth/headroom.log.jsonl" 2>/dev/null)
+  case "$log_synth" in
+    *'"model":"claude-sonnet-5"'*'"turns":2'*'"input_tokens":17'*'"output_tokens":23'*'"cache_read_input_tokens":150'*'"cache_creation_input_tokens":9'*)
+      echo "  ok    a trailing <synthetic> entry is not counted as a turn and does not overwrite the real model" ;;
+    *) echo "  FAIL  <synthetic> entry corrupted model/turns/sums: $log_synth"; fail=1 ;;
+  esac
+
   # 2.1: logging is not limited to headroom roles; a non-headroom agent_type
   # with a missing transcript still gets a log line, with zero counts, and
   # is never blocked.
@@ -774,6 +795,30 @@ JSONL
   check "never prints to the model (fixture B)" "" "$out"
   check "tail-only read: entry outside the last 200 lines is never logged" "" \
     "$(cat "$data_b/headroom.log.jsonl" 2>/dev/null)"
+
+  # Fixture C: a real assistant-with-usage entry followed by a
+  # "<synthetic>" one (Claude Code's model for entries like "No response
+  # requested." or "API Error: Connection lost...", always with all-zero
+  # usage). The synthetic entry must be skipped, not treated as "the last
+  # assistant entry with usage": logging model "<synthetic>" and
+  # context_tokens 0 would corrupt the growth curve Phase 4.3 depends on.
+  data_c="$tmp/context-size-data-c"
+  rm -rf "$data_c"
+  mkdir -p "$data_c"
+  fixture_c="$tmp/context-size-fixture-c.jsonl"
+  cat >"$fixture_c" <<'JSONL'
+{"type":"assistant","message":{"id":"msg_real","model":"claude-sonnet-5","usage":{"input_tokens":200,"output_tokens":10,"cache_read_input_tokens":300,"cache_creation_input_tokens":0}}}
+{"type":"assistant","message":{"id":"msg_synth","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+JSONL
+  input=$(printf '{"transcript_path":"%s"}' "$fixture_c")
+  out=$(printf '%s' "$input" | CLAUDE_PLUGIN_DATA="$data_c" "$hooks/context-size.sh" 2>/dev/null)
+  check "never prints to the model (fixture C)" "" "$out"
+  log=$(cat "$data_c/headroom.log.jsonl" 2>/dev/null)
+  case "$log" in
+    *'"model":"claude-sonnet-5"'*'"context_tokens":500'*)
+      echo "  ok    a <synthetic> tail entry is skipped; the real entry's model/tokens are logged" ;;
+    *) echo "  FAIL  <synthetic> entry corrupted the logged model/tokens: $log"; fail=1 ;;
+  esac
 
   # Missing transcript_path, unreadable file, and unparseable input all
   # degrade to silent, no log, never a block.
