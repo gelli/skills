@@ -15,7 +15,18 @@
 # - hr_log: appends one JSON line to the headroom event log, best-effort.
 # - hr_log_fields: like hr_log, but for an arbitrary set of key/value fields
 #   (usage numbers, sizes) plus session_id, read from $HR_INPUT when set.
+# - hr_log_rotate: called by both of the above before they append, so the
+#   log is capped at HR_LOG_MAX_BYTES (Phase 2 risk: "the log grows without
+#   limit").
 set -u
+
+# headroom.log.jsonl's size cap: once a write would find it at or over this
+# size, hr_log_rotate moves it to headroom.log.jsonl.1 first (overwriting
+# any previous one), so it never grows without bound. 10 MB is generous: a
+# logged line here runs a few hundred bytes, so the cap holds many weeks of
+# normal use, well past the 7-day window usage.sh reports on by default.
+# Tests override this by reassigning it after sourcing lib.sh.
+HR_LOG_MAX_BYTES=10485760
 
 hr_read_input() {
   HR_INPUT=$(cat 2>/dev/null || true)
@@ -65,6 +76,25 @@ hr_block() {
   printf '{"decision":"block","reason":%s}\n' "$(hr_json_escape "$1")"
 }
 
+# hr_log_rotate <path> -- best-effort: once <path> is at or over
+# HR_LOG_MAX_BYTES, renames it to <path>.1 (overwriting any previous one),
+# so the log never grows without bound. Called by hr_log and hr_log_fields
+# right before they append, so every write checks it. One rotation is kept;
+# a second rotation drops whatever was in .1. A concurrent writer (e.g. Stop
+# and a SubagentStop landing at the same instant) can still lose at most the
+# one line it was mid-append on, the same best-effort contract the rest of
+# this file has; it never fails the caller.
+hr_log_rotate() {
+  hr_lr_path=$1
+  [ -f "$hr_lr_path" ] || return 0
+  hr_lr_size=$(wc -c <"$hr_lr_path" 2>/dev/null | tr -d '[:space:]')
+  case "$hr_lr_size" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  [ "$hr_lr_size" -ge "$HR_LOG_MAX_BYTES" ] || return 0
+  mv -f "$hr_lr_path" "$hr_lr_path.1" 2>/dev/null || true
+}
+
 # hr_log <event> <hook> <detail> -- best-effort append to
 # $CLAUDE_PLUGIN_DATA/headroom.log.jsonl. Silently does nothing if the
 # variable is unset or the file cannot be written; never fails the hook.
@@ -72,6 +102,7 @@ hr_log() {
   data="${CLAUDE_PLUGIN_DATA:-}"
   [ -n "$data" ] || return 0
   mkdir -p "$data" 2>/dev/null || return 0
+  hr_log_rotate "$data/headroom.log.jsonl"
   ts=$(date +%s 2>/dev/null || echo 0)
   printf '{"ts":%s,"event":%s,"hook":%s,"detail":%s}\n' \
     "$ts" "$(hr_json_escape "$1")" "$(hr_json_escape "$2")" "$(hr_json_escape "$3")" \
@@ -96,6 +127,7 @@ hr_log_fields() {
   hr_lf_data="${CLAUDE_PLUGIN_DATA:-}"
   [ -n "$hr_lf_data" ] || return 0
   mkdir -p "$hr_lf_data" 2>/dev/null || return 0
+  hr_log_rotate "$hr_lf_data/headroom.log.jsonl"
   hr_lf_ts=$(date +%s 2>/dev/null || echo 0)
 
   hr_sid=""

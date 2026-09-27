@@ -133,6 +133,65 @@ run_hr_log_fields_matrix() { # label
     hr_log_fields spawn check-agent role scout
   )
   echo "  ok    silently does nothing without CLAUDE_PLUGIN_DATA (no crash)"
+
+  # Log rotation (Phase 2 risk: "the log grows without limit"). Reassigning
+  # HR_LOG_MAX_BYTES after sourcing lib.sh tests rotation against a few
+  # bytes instead of writing a real 10MB fixture.
+  data_rot="$tmp/lib-rotate-data"
+  rm -rf "$data_rot"
+  mkdir -p "$data_rot"
+  printf 'old line already past the tiny test cap\n' >"$data_rot/headroom.log.jsonl"
+  (
+    export CLAUDE_PLUGIN_DATA="$data_rot"
+    . "$hooks/lib.sh"
+    HR_LOG_MAX_BYTES=10
+    hr_log_fields spawn check-agent role scout
+  )
+  case "$(cat "$data_rot/headroom.log.jsonl.1" 2>/dev/null)" in
+    *"old line already past the tiny test cap"*)
+      echo "  ok    a log at or over the cap is rotated to .1 before the new line is appended" ;;
+    *) echo "  FAIL  old log content missing from .1 after rotation"; fail=1 ;;
+  esac
+  new_content=$(cat "$data_rot/headroom.log.jsonl" 2>/dev/null)
+  case "$new_content" in
+    *"old line already past the tiny test cap"*)
+      echo "  FAIL  rotated content leaked into the new file: $new_content"; fail=1 ;;
+    *'"event":"spawn"'*) echo "  ok    the new file after rotation holds only the new line" ;;
+    *) echo "  FAIL  new line missing after rotation: $new_content"; fail=1 ;;
+  esac
+
+  # Under the cap: no rotation, the file just grows.
+  data_norot="$tmp/lib-norotate-data"
+  rm -rf "$data_norot"
+  mkdir -p "$data_norot"
+  printf 'short\n' >"$data_norot/headroom.log.jsonl"
+  (
+    export CLAUDE_PLUGIN_DATA="$data_norot"
+    . "$hooks/lib.sh"
+    HR_LOG_MAX_BYTES=10000000
+    hr_log_fields spawn check-agent role scout
+  )
+  check "no rotation file created when under the cap" "" "$(cat "$data_norot/headroom.log.jsonl.1" 2>/dev/null)"
+  case "$(cat "$data_norot/headroom.log.jsonl" 2>/dev/null)" in
+    *short*'"event":"spawn"'*) echo "  ok    file grows normally under the cap" ;;
+    *) echo "  FAIL  file did not grow normally under the cap"; fail=1 ;;
+  esac
+
+  # hr_log rotates too, not only hr_log_fields.
+  data_rot2="$tmp/lib-rotate-data-2"
+  rm -rf "$data_rot2"
+  mkdir -p "$data_rot2"
+  printf 'old detail line past cap\n' >"$data_rot2/headroom.log.jsonl"
+  (
+    export CLAUDE_PLUGIN_DATA="$data_rot2"
+    . "$hooks/lib.sh"
+    HR_LOG_MAX_BYTES=5
+    hr_log override block "new detail"
+  )
+  case "$(cat "$data_rot2/headroom.log.jsonl.1" 2>/dev/null)" in
+    *"old detail line past cap"*) echo "  ok    hr_log rotates too, not only hr_log_fields" ;;
+    *) echo "  FAIL  hr_log did not rotate"; fail=1 ;;
+  esac
 }
 
 run_parser_matrix run_hr_log_fields_matrix "hr_log_fields"
