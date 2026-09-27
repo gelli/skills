@@ -16,11 +16,12 @@ check() { # label expected actual
 # assert_parser <label> -- guard against a real regression: a prefix
 # assignment on a shell *function* call (e.g. `HEADROOM_PARSER=python3
 # run_x_matrix ...`) has shell-dependent persistence after the call
-# returns. POSIX leaves this unspecified, and on this machine's /bin/sh
-# (bash 3.2 running in POSIX mode) the assignment leaks into every command
-# for the rest of the script, so a later "via jq" run would silently run
-# on python3 (proven empirically; dash and non-POSIX bash do not leak
-# this). Every run_*_matrix below calls this as its first statement so
+# returns. POSIX leaves this unspecified, and on macOS's /bin/sh (bash
+# 3.2 running in POSIX mode) the assignment leaks into every command for
+# the rest of the script, so a later "via jq" run would silently run on
+# python3 (proven empirically; dash and non-POSIX bash do not leak this,
+# so a Linux CI running either would not have hit this gap). Every
+# run_*_matrix below calls this as its first statement so
 # the check happens inside the run, not just around the call site, and
 # would catch that regression even if a future edit reintroduced the
 # leaky prefix-assignment pattern at a call site.
