@@ -13,6 +13,8 @@
 #   for a missing parser.
 # - hr_deny / hr_add_context: print the hook-output JSON shapes.
 # - hr_log: appends one JSON line to the headroom event log, best-effort.
+# - hr_log_fields: like hr_log, but for an arbitrary set of key/value fields
+#   (usage numbers, sizes) plus session_id, read from $HR_INPUT when set.
 set -u
 
 hr_read_input() {
@@ -74,4 +76,68 @@ hr_log() {
   printf '{"ts":%s,"event":%s,"hook":%s,"detail":%s}\n' \
     "$ts" "$(hr_json_escape "$1")" "$(hr_json_escape "$2")" "$(hr_json_escape "$3")" \
     >>"$data/headroom.log.jsonl" 2>/dev/null || return 0
+}
+
+# hr_log_fields <event> <hook> [<key> <value> ...] -- best-effort append to
+# $CLAUDE_PLUGIN_DATA/headroom.log.jsonl, like hr_log, but for an arbitrary
+# set of extra fields (usage numbers, sizes) instead of one detail string.
+# session_id is read from $HR_INPUT (set by hr_read_input) when present;
+# it is always present in the logged line, empty if not found.
+#
+# A value is logged unquoted (as JSON true/false/a number) when it is
+# exactly "true", "false", or a non-negative integer with no leading zero
+# ("0" itself is the one exception); everything else, including "007" and
+# "", goes through hr_json_escape as a string. An odd trailing key with no
+# value logs as "".
+hr_log_fields() {
+  hr_lf_event=$1
+  hr_lf_hook=$2
+  shift 2
+  hr_lf_data="${CLAUDE_PLUGIN_DATA:-}"
+  [ -n "$hr_lf_data" ] || return 0
+  mkdir -p "$hr_lf_data" 2>/dev/null || return 0
+  hr_lf_ts=$(date +%s 2>/dev/null || echo 0)
+
+  hr_sid=""
+  if [ -n "${HR_INPUT:-}" ]; then
+    hr_lf_sid_out=$(hr_fields '
+      "parsed",
+      (.session_id // "")
+    ' '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+print("parsed")
+print(d.get("session_id") or "")
+')
+    if [ "$(printf '%s\n' "$hr_lf_sid_out" | sed -n 1p)" = parsed ]; then
+      hr_sid=$(printf '%s\n' "$hr_lf_sid_out" | sed -n 2p)
+    fi
+  fi
+
+  hr_extra=""
+  while [ $# -gt 0 ]; do
+    hr_k=$1
+    shift
+    if [ $# -gt 0 ]; then
+      hr_v=$1
+      shift
+    else
+      hr_v=""
+    fi
+    case "$hr_v" in
+      true|false) hr_v_json=$hr_v ;;
+      0) hr_v_json=0 ;;
+      0*) hr_v_json=$(hr_json_escape "$hr_v") ;;
+      ''|*[!0-9]*) hr_v_json=$(hr_json_escape "$hr_v") ;;
+      *) hr_v_json=$hr_v ;;
+    esac
+    hr_extra="$hr_extra,$(hr_json_escape "$hr_k"):$hr_v_json"
+  done
+
+  printf '{"ts":%s,"event":%s,"hook":%s,"session_id":%s%s}\n' \
+    "$hr_lf_ts" "$(hr_json_escape "$hr_lf_event")" "$(hr_json_escape "$hr_lf_hook")" "$(hr_json_escape "$hr_sid")" "$hr_extra" \
+    >>"$hr_lf_data/headroom.log.jsonl" 2>/dev/null || return 0
 }

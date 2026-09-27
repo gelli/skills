@@ -16,6 +16,84 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # ======================================================================
+# lib.sh: hr_log_fields
+# ======================================================================
+
+run_hr_log_fields_matrix() { # label
+  echo "$1"
+  data="$tmp/lib-data"
+  rm -rf "$data"
+  mkdir -p "$data"
+  (
+    export CLAUDE_PLUGIN_DATA="$data"
+    . "$hooks/lib.sh"
+    HR_INPUT='{"session_id":"sess-42"}'
+    hr_log_fields spawn check-agent role scout count 3 raised false leadingzero 007 empty "" name 'a "quoted" role'
+  )
+  line=$(cat "$data/headroom.log.jsonl" 2>/dev/null)
+  case "$line" in
+    *'"session_id":"sess-42"'*) echo "  ok    session_id read from HR_INPUT" ;;
+    *) echo "  FAIL  session_id missing from log line: $line"; fail=1 ;;
+  esac
+  case "$line" in
+    *'"count":3'*) echo "  ok    integer logged unquoted" ;;
+    *) echo "  FAIL  integer should be unquoted: $line"; fail=1 ;;
+  esac
+  case "$line" in
+    *'"raised":false'*) echo "  ok    boolean logged unquoted" ;;
+    *) echo "  FAIL  boolean should be unquoted: $line"; fail=1 ;;
+  esac
+  case "$line" in
+    *'"leadingzero":"007"'*) echo "  ok    leading-zero string stays quoted" ;;
+    *) echo "  FAIL  leading-zero string should stay quoted: $line"; fail=1 ;;
+  esac
+  case "$line" in
+    *'"name":"a \"quoted\" role"'*) echo "  ok    string value JSON-escaped" ;;
+    *) echo "  FAIL  string value not escaped correctly: $line"; fail=1 ;;
+  esac
+  if command -v python3 >/dev/null 2>&1; then
+    if printf '%s' "$line" | python3 -c 'import json, sys; json.load(sys.stdin)' >/dev/null 2>&1; then
+      echo "  ok    log line is valid JSON"
+    else
+      echo "  FAIL  log line is not valid JSON: $line"; fail=1
+    fi
+  fi
+
+  # No HR_INPUT (or unparseable session): session_id is still present, empty.
+  rm -rf "$data"
+  mkdir -p "$data"
+  (
+    export CLAUDE_PLUGIN_DATA="$data"
+    . "$hooks/lib.sh"
+    hr_log_fields deny check-agent reason "no name field this time"
+  )
+  line=$(cat "$data/headroom.log.jsonl" 2>/dev/null)
+  case "$line" in
+    *'"session_id":""'*) echo "  ok    session_id empty when HR_INPUT unset" ;;
+    *) echo "  FAIL  session_id should be empty: $line"; fail=1 ;;
+  esac
+
+  # No CLAUDE_PLUGIN_DATA: best-effort no-op, never fails.
+  (
+    unset CLAUDE_PLUGIN_DATA
+    . "$hooks/lib.sh"
+    hr_log_fields spawn check-agent role scout
+  )
+  echo "  ok    silently does nothing without CLAUDE_PLUGIN_DATA (no crash)"
+}
+
+if command -v jq >/dev/null 2>&1; then
+  run_hr_log_fields_matrix "hr_log_fields via jq"
+else
+  echo "jq not installed; skipping hr_log_fields jq path"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  HEADROOM_PARSER=python3 run_hr_log_fields_matrix "hr_log_fields via python3"
+else
+  echo "python3 not installed; skipping hr_log_fields python3 path"
+fi
+
+# ======================================================================
 # check-agent.sh
 # ======================================================================
 
