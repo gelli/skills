@@ -127,7 +127,7 @@ fi
 #   COUNTS<TAB>nudges<TAB>blocks<TAB>denies<TAB>raises<TAB>allowed
 #   SUPPRESSED<TAB>session_id
 JQ_PROGRAM='
-reduce (inputs | fromjson? // empty) as $e (
+(reduce (inputs | fromjson? // empty) as $e (
   {agents:{}, noid_seq:0, ctx:{}, nudges:0, blocks:0, denies:0, raises:0, allowed:0, nudge_sessions:{}, spawn_sessions:{}};
   ($e.ts // 0) as $ts
   | if $ts < $cutoff then .
@@ -175,7 +175,7 @@ reduce (inputs | fromjson? // empty) as $e (
         else .
         end
     end
-) as $r
+)) as $r
 | ( reduce ($r.agents | to_entries[]) as $a (
       {};
       ($a.value.agent_type + "\u0001" + $a.value.model) as $key
