@@ -10,4 +10,4 @@ rules.md tells the orchestrator to prefer `headroom:scout` over the built-in `Ex
 ## Consequences
 
 - rules.md carries one line steering the orchestrator toward scout; nothing stops a direct Explore call, so cost still depends on the orchestrator following the rule.
-- check-agent.sh's log of allowed spawns is the trigger: once it shows Explore running on Opus in practice, plan item 4.7 in docs/plans/2026-09-27-headroom-0.2.md adds the denial.
+- The trigger is report-warning.sh's SubagentStop usage line, not check-agent.sh's allow log: check-agent.sh logs `model` as passed on the Agent call, which is empty for a default Explore spawn, so it can never show Explore running on Opus. report-warning.sh's usage line records the model Explore actually ran on, read from its own transcript. Once that line shows Explore running on Opus in practice, plan item 4.7 in docs/plans/2026-09-27-headroom-0.2.md adds the denial.
