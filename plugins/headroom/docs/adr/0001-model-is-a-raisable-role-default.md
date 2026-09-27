@@ -1,6 +1,6 @@
 # A role's model is a default that a spawn may only raise
 
-Each role (scout, implementer, reviewer) is fixed by its tool set and instructions, not by its model. The agent file sets a default model, and a spawn may pass a higher one but never a lower one, and never Fable. We chose this over one role per model because every framework we surveyed (superpowers, GSD) picks the model per task, not per role, and because escalation after a failed review needs the same role on a stronger model. Adding roles per model would have grown the Agent tool listing, and a longer listing makes the orchestrator less likely to delegate at all.
+Each role (scout, implementer, reviewer) is fixed by its tool set and instructions, not by its model. The agent file sets a default model, and a spawn may pass a higher one but never a lower one, and never Fable. We chose this over one role per model because every framework we surveyed (superpowers, GSD, whose main repository was archived in mid-2026 after this survey) picks the model per task, not per role, and because escalation after a failed review needs the same role on a stronger model. Adding roles per model would have grown the Agent tool listing, and a longer listing makes the orchestrator less likely to delegate at all.
 
 ## Considered Options
 
