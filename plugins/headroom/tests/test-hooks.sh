@@ -501,6 +501,12 @@ run_report_matrix() { # label
   long_msg=$(awk 'BEGIN{for(i=0;i<70;i++) print "line " i}')
   esc_long=$(printf '%s' "$long_msg" | awk '{printf "%s\\n", $0}')
 
+  # 1.1: the report-length block is headroom's own guardrail. A non-headroom
+  # agent_type gets a 70-line report through silently, whatever plugin it
+  # came from.
+  check "Explore 70-line report stays silent (1.1)" "" "$(printf '{"agent_type":"Explore","last_assistant_message":"%s"}' "$esc_long" | "$hooks/report-warning.sh" 2>/dev/null)"
+  check "superpowers:code-reviewer 70-line report stays silent (1.1)" "" "$(printf '{"agent_type":"superpowers:code-reviewer","last_assistant_message":"%s"}' "$esc_long" | "$hooks/report-warning.sh" 2>/dev/null)"
+
   out=$(printf '{"agent_type":"headroom:scout","last_assistant_message":"%s"}' "$esc_long" | "$hooks/report-warning.sh" 2>/dev/null)
   case "$out" in
     *'"decision":"block"'*) echo "  ok    over-line-limit blocks the worker from stopping" ;;

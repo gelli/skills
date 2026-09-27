@@ -1,18 +1,19 @@
 #!/bin/sh
 # headroom SubagentStop hook: talks to the WORKER, not the main session. When
-# a worker's own final report is long enough to defeat the point of
+# a headroom worker's own final report is long enough to defeat the point of
 # delegating (only the report, not the worker's intermediate output, was
 # ever meant to enter the main context), this blocks the worker from
 # stopping and asks it to resend a shorter report with a report file.
-# Thresholds: 60 lines, 8000 bytes.
+# Thresholds: 60 lines, 8000 bytes. Limited to headroom's own roles
+# (agent_type starting with "headroom:"): Explore, other plugins' agents and
+# workflow agents are not headroom's to police (1.1).
 #
 # SubagentStop's additionalContext and decision:"block" both go to the
 # SUBAGENT, never the parent session (a PostToolUse hook on Agent would be
-# needed to reach the parent). Skips silently when agent_type is empty
-# (Claude Code's own internal agents, e.g. prompt suggestions, not a
-# headroom worker) or when stop_hook_active is true (already looping once;
-# do not loop forever). If a background worker delivered its report through
-# a hand-back (SubagentHandback), this hook only ever sees the worker's
+# needed to reach the parent). Skips silently when agent_type is not a
+# headroom role or when stop_hook_active is true (already looping once; do
+# not loop forever). If a background worker delivered its report through a
+# hand-back (SubagentHandback), this hook only ever sees the worker's
 # closing text in last_assistant_message, not the delivered report, and so
 # does nothing about the report's real length.
 #
@@ -54,8 +55,11 @@ agent_type=$(printf '%s\n' "$fields" | sed -n 2p)
 stop_hook_active=$(printf '%s\n' "$fields" | sed -n 3p)
 message=$(printf '%s\n' "$fields" | sed -n '4,$p')
 
-# Not a headroom worker, or already looping once: do nothing.
-[ -n "$agent_type" ] || exit 0
+# Only headroom's own roles (1.1), and never on an already-looping stop.
+case "$agent_type" in
+  headroom:*) ;;
+  *) exit 0 ;;
+esac
 [ "$stop_hook_active" != true ] || exit 0
 
 lines=$(printf '%s\n' "$message" | wc -l | tr -d '[:space:]')
