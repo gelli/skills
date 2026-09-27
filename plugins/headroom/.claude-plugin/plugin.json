@@ -1,0 +1,31 @@
+{
+  "name": "headroom",
+  "version": "0.1.0",
+  "description": "Keeps the main session's context small by delegating token-heavy work to three worker roles (scout, implementer, reviewer), with a spawn check, nudges, and optional blocks.",
+  "author": {
+    "name": "Chris Heizmann"
+  },
+  "keywords": [
+    "delegation",
+    "subagents",
+    "context",
+    "hooks"
+  ],
+  "homepage": "https://github.com/gelli/skills",
+  "repository": "https://github.com/gelli/skills",
+  "license": "MIT",
+  "userConfig": {
+    "hard_blocks": {
+      "type": "boolean",
+      "title": "Block delegable work in the main session",
+      "description": "Refuse test/build/lint/type-check runs and repo-wide searches in the main session; lift with /headroom:inline.",
+      "default": false
+    },
+    "block_patterns": {
+      "type": "string",
+      "title": "Extra block patterns",
+      "description": "Extra extended regex (ERE) matched against Bash commands, added to the built-in list.",
+      "default": ""
+    }
+  }
+}

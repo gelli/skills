@@ -1,5 +1,7 @@
 # model-routing
 
+**Deprecated: use [headroom](../headroom/README.md) instead.** Headroom supersedes this plugin: it covers the same Agent-spawn model rule plus delegation itself (three worker roles, nudges, optional blocks). Both plugins hook `PreToolUse` on `Agent`, and their checks conflict (this plugin's check does not know about headroom's roles), so uninstall model-routing before installing headroom. Model-routing will be removed from the marketplace in a later release.
+
 Keeps the orchestrator on the session's top-tier model and pushes the doing down to the cheapest subagent tier that can do it reliably. Two hooks:
 
 - **SessionStart** injects `routing.md` into context on startup, clear and after every compaction. Not on resume: a resumed transcript already holds the rules. The rules pre-authorise Haiku, Sonnet and Opus spawns, workflows and deep research (no confirmation prompt), and define the Haiku / Sonnet / Opus tiers, the gated Opus-subagent exception, the brief every delegation must carry, and the Fable orchestrator-only rule.
