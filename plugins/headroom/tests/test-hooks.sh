@@ -517,6 +517,41 @@ run_nudge_matrix() { # label
     *additionalContext*) echo "  ok    over-threshold mcp__ response nudges (1.5)" ;;
     *) echo "  FAIL  over-threshold mcp__ response should nudge"; fail=1 ;;
   esac
+
+  # 1.9 / C3: a persistedOutputPath means the model only saw a ~2KB preview,
+  # so the full stdout+stderr never entered the main context. The pair below
+  # uses the same 30,000-char stdout (jq's cap) plus 5,000 of stderr, over
+  # threshold on byte count alone, so persistedOutputPath is the only thing
+  # that can explain the difference between the two outcomes.
+  stdout30k=$(awk 'BEGIN{s=""; for(i=0;i<30000;i++) s=s "x"; print s}')
+  stderr5k=$(awk 'BEGIN{s=""; for(i=0;i<5000;i++) s=s "y"; print s}')
+  check "Bash with persistedOutputPath stays silent (1.9)" "" \
+    "$(printf '{"tool_name":"Bash","tool_response":{"stdout":"%s","stderr":"%s","persistedOutputPath":"/tmp/out"}}' "$stdout30k" "$stderr5k" | "$hooks/nudge.sh" 2>/dev/null)"
+  out=$(printf '{"tool_name":"Bash","tool_response":{"stdout":"%s","stderr":"%s"}}' "$stdout30k" "$stderr5k" | "$hooks/nudge.sh" 2>/dev/null)
+  case "$out" in
+    *additionalContext*) echo "  ok    same stdout+stderr without persistedOutputPath nudges (1.9)" ;;
+    *) echo "  FAIL  Bash with no persistedOutputPath should nudge"; fail=1 ;;
+  esac
+
+  # 1.9: Read is measured by file.content, not the whole tool_response.
+  content40k=$(awk 'BEGIN{s=""; for(i=0;i<40000;i++) s=s "z"; print s}')
+  out=$(printf '{"tool_name":"Read","tool_response":{"file":{"content":"%s","numLines":1}}}' "$content40k" | "$hooks/nudge.sh" 2>/dev/null)
+  case "$out" in
+    *additionalContext*) echo "  ok    Read with 40KB content nudges (1.9)" ;;
+    *) echo "  FAIL  Read with 40KB content should nudge"; fail=1 ;;
+  esac
+  check "Read with small content stays silent (1.9)" "" \
+    "$(printf '{"tool_name":"Read","tool_response":{"file":{"content":"short"}}}' | "$hooks/nudge.sh" 2>/dev/null)"
+
+  # Regression check for finding 6 still applies to the tojson branch (any
+  # non-Bash, non-Read tool, e.g. WebFetch): the same non-ASCII payload used
+  # above, wrapped in a JSON object, must not wrongly cross the threshold
+  # because of ensure_ascii mis-escaping.
+  out=$(printf '{"tool_name":"WebFetch","tool_response":{"body":"%s"}}' "$nonascii" | "$hooks/nudge.sh" 2>/dev/null)
+  case "$out" in
+    *additionalContext*) echo "  FAIL  non-ASCII WebFetch payload wrongly nudges (over-counted bytes)"; fail=1 ;;
+    *) echo "  ok    non-ASCII WebFetch payload (tojson branch) counted correctly, no false nudge" ;;
+  esac
 }
 
 if command -v jq >/dev/null 2>&1; then
