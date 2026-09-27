@@ -842,12 +842,14 @@ run_usage_matrix() { # label
 {"ts":$now,"event":"usage","hook":"report-warning","session_id":"s1","agent_type":"headroom:scout","agent_id":"a1","model":"claude-haiku-4-5","turns":2,"input_tokens":15,"output_tokens":8,"cache_read_input_tokens":100,"cache_creation_input_tokens":0,"report_bytes":150,"report_lines":30,"transcript":"ok","stop_hook_active":false}
 {"ts":$now,"event":"usage","hook":"report-warning","session_id":"s1","agent_type":"headroom:scout","agent_id":"a2","model":"claude-haiku-4-5","turns":1,"input_tokens":20,"output_tokens":10,"cache_read_input_tokens":50,"cache_creation_input_tokens":5,"report_bytes":300,"report_lines":8,"transcript":"ok","stop_hook_active":false}
 {"ts":$now,"event":"usage","hook":"report-warning","session_id":"s2","agent_type":"headroom:implementer","agent_id":"a3","model":"claude-sonnet-5","turns":3,"input_tokens":1000,"output_tokens":500,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"report_bytes":400,"report_lines":30,"transcript":"ok","stop_hook_active":false}
+{"ts":$now,"event":"usage","hook":"report-warning","session_id":"s5","agent_type":"Explore","agent_id":"a4","model":"","turns":0,"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"report_bytes":250,"report_lines":5,"transcript":"missing","stop_hook_active":false}
 {"ts":$now,"event":"nudge","hook":"nudge","session_id":"s1","tool_name":"Bash","bytes":40000}
 {"ts":$now,"event":"nudge","hook":"nudge","session_id":"s3","tool_name":"Read","bytes":50000}
 {"ts":$now,"event":"block","hook":"block","detail":"Bash: npm test"}
 {"ts":$past_100,"event":"context","hook":"context-size","session_id":"s1","model":"claude-sonnet-5","context_tokens":2000}
 {"ts":$past_50,"event":"context","hook":"context-size","session_id":"s1","model":"claude-sonnet-5","context_tokens":1000}
 {"ts":$now,"event":"context","hook":"context-size","session_id":"s1","model":"claude-sonnet-5","context_tokens":1500}
+{"ts":$now,"event":"context","hook":"context-size","session_id":"","model":"claude-sonnet-5","context_tokens":777}
 {"ts":$old_ts,"event":"nudge","hook":"nudge","session_id":"s4","tool_name":"Bash","bytes":60000}
 EOF
 
@@ -871,9 +873,23 @@ EOF
   echo "$out" | grep -Eq 'headroom:scout[[:space:]]+claude-haiku-4-5[[:space:]]+2[[:space:]]+35[[:space:]]+18[[:space:]]+150[[:space:]]+5[[:space:]]+450[[:space:]]+0\.46' \
     && echo "  ok    scout worker row dedups a1's two stops (last line wins), sums with a2 (all)" \
     || { echo "  FAIL  scout worker row wrong (all): $out"; fail=1; }
+  # agent_id a4 (Explore) logs model "" -- report-warning.sh's real shape
+  # when the worker transcript is missing or unparsed. An empty model
+  # column must not collapse two adjacent tabs into one under the row
+  # formatter's `read`: that would shift every later column left, printing
+  # the spawn count where model belongs and leaving report_bytes blank.
+  echo "$out" | grep -Eq 'Explore[[:space:]]+-[[:space:]]+1[[:space:]]+0[[:space:]]+0[[:space:]]+0[[:space:]]+0[[:space:]]+250[[:space:]]+0\.00' \
+    && echo "  ok    worker row with an empty model shows a placeholder, not a shifted row (all)" \
+    || { echo "  FAIL  worker row with empty model wrong (all): $out"; fail=1; }
   echo "$out" | grep -Eq 's1[[:space:]]+claude-sonnet-5[[:space:]]+1500[[:space:]]+2000' \
     && echo "  ok    context row: latest 1500 (most recent ts), max 2000 (highest seen) (all)" \
     || { echo "  FAIL  context row wrong (all): $out"; fail=1; }
+  # A context line with no session_id must not collapse two adjacent tabs
+  # into one under the row formatter's `read`: that would shift model into
+  # the session column and leave max blank.
+  echo "$out" | grep -Eq '^  -[[:space:]]+claude-sonnet-5[[:space:]]+777[[:space:]]+777' \
+    && echo "  ok    context row with an empty session_id shows a placeholder, not a shifted row (all)" \
+    || { echo "  FAIL  context row with empty session_id wrong (all): $out"; fail=1; }
   echo "$out" | grep -Fq "nudges: 3   blocks: 1   denies: 1   raises: 1 (of 3 allowed spawns)" \
     && echo "  ok    counts: nudges/blocks/denies/raises (all)" \
     || { echo "  FAIL  counts line wrong (all): $out"; fail=1; }

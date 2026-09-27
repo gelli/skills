@@ -122,6 +122,10 @@ fi
 # session_id, counts nudge/block/deny/raised-allow events, and tracks which
 # sessions had a nudge vs an allowed spawn. Emits four tagged, tab-separated
 # line shapes; field order must match the python3 branch below exactly.
+# String fields (agent_type, model, session_id) that would otherwise be
+# empty are emitted as "-": the row formatters below split on tab with a
+# plain `read`, and tab is IFS whitespace, so two adjacent tabs collapse
+# into one and shift every later column left.
 #   WORKER<TAB>agent_type<TAB>model<TAB>spawns<TAB>input<TAB>output<TAB>cache_read<TAB>cache_write<TAB>report_bytes
 #   CONTEXT<TAB>session_id<TAB>model<TAB>latest_tokens<TAB>max_tokens
 #   COUNTS<TAB>nudges<TAB>blocks<TAB>denies<TAB>raises<TAB>allowed
@@ -192,9 +196,20 @@ JQ_PROGRAM='
   )
   ) as $worker
 | ( $worker | to_entries | sort_by([.value.agent_type, .value.model]) | .[] |
-    ["WORKER", .value.agent_type, .value.model, .value.spawns, .value.input, .value.output, .value.cache_read, .value.cache_write, .value.report_bytes] | join("\t") ),
+    # agent_type/model can legitimately be "" (report-warning.sh logs model
+    # "" when a worker transcript is missing or unparsed); a bare empty
+    # field would collapse two adjacent tabs into one under the read loop
+    # below and shift every later column left, so blank fields are
+    # displayed as "-" instead of "".
+    ["WORKER",
+     (if .value.agent_type == "" then "-" else .value.agent_type end),
+     (if .value.model == "" then "-" else .value.model end),
+     .value.spawns, .value.input, .value.output, .value.cache_read, .value.cache_write, .value.report_bytes] | join("\t") ),
   ( $r.ctx | to_entries | sort_by(.key) | .[] |
-    ["CONTEXT", .key, .value.model, .value.latest_tokens, .value.max_tokens] | join("\t") ),
+    ["CONTEXT",
+     (if .key == "" then "-" else .key end),
+     (if .value.model == "" then "-" else .value.model end),
+     .value.latest_tokens, .value.max_tokens] | join("\t") ),
   ( ["COUNTS", $r.nudges, $r.blocks, $r.denies, $r.raises, $r.allowed] | join("\t") ),
   ( (($r.nudge_sessions | keys) - ($r.spawn_sessions | keys)) | sort | .[] | ["SUPPRESSED", .] | join("\t") )
 '
@@ -288,13 +303,21 @@ for a in agents.values():
     w["cache_write"] += a["cache_write"]
     w["report_bytes"] += a["report_bytes"]
 
+# agent_type/model can legitimately be "" (see the matching jq comment
+# above); displayed as "-" so the shell read below never sees two adjacent
+# tabs, which whitespace-IFS `read` would collapse into one and shift every
+# later column left.
 for (at, m) in sorted(worker.keys()):
     w = worker[(at, m)]
-    print("\t".join(str(x) for x in ["WORKER", at, m, w["spawns"], w["input"], w["output"], w["cache_read"], w["cache_write"], w["report_bytes"]]))
+    at_disp = at if at != "" else "-"
+    m_disp = m if m != "" else "-"
+    print("\t".join(str(x) for x in ["WORKER", at_disp, m_disp, w["spawns"], w["input"], w["output"], w["cache_read"], w["cache_write"], w["report_bytes"]]))
 
 for sid in sorted(ctx.keys()):
     c = ctx[sid]
-    print("\t".join(str(x) for x in ["CONTEXT", sid, c["model"], c["latest_tokens"], c["max_tokens"]]))
+    sid_disp = sid if sid != "" else "-"
+    m_disp = c["model"] if c["model"] != "" else "-"
+    print("\t".join(str(x) for x in ["CONTEXT", sid_disp, m_disp, c["latest_tokens"], c["max_tokens"]]))
 
 print("\t".join(str(x) for x in ["COUNTS", nudges, blocks, denies, raises, allowed]))
 
