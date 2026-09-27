@@ -94,5 +94,5 @@ size=$(printf '%s' "$measured" | wc -c | tr -d '[:space:]')
 # ~4 bytes per token (32768 bytes ~ 8k tokens).
 kt=$((size / 4096))
 [ "$kt" -gt 0 ] || kt=1
-hr_log nudge nudge "$tool_name response was $size bytes (~${kt}k tokens)"
+hr_log_fields nudge nudge tool_name "$tool_name" bytes "$size"
 hr_add_context PostToolUse "headroom: that $tool_name output was about ${kt}k tokens in the main context. Next time send this kind of work to headroom:scout."

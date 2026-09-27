@@ -552,6 +552,29 @@ run_nudge_matrix() { # label
     *additionalContext*) echo "  FAIL  non-ASCII WebFetch payload wrongly nudges (over-counted bytes)"; fail=1 ;;
     *) echo "  ok    non-ASCII WebFetch payload (tojson branch) counted correctly, no false nudge" ;;
   esac
+
+  # 2.4: every nudge log line records tool_name and the measured byte count
+  # as structured fields.
+  data="$tmp/nudge-log-data"
+  rm -rf "$data"
+  mkdir -p "$data"
+  (
+    export CLAUDE_PLUGIN_DATA="$data"
+    printf '{"session_id":"n1","tool_name":"Bash","tool_response":{"stdout":"%s"}}' "$big" | "$hooks/nudge.sh" >/dev/null 2>&1
+  )
+  log=$(cat "$data/headroom.log.jsonl" 2>/dev/null)
+  case "$log" in
+    *'"event":"nudge"'*'"hook":"nudge"'*'"session_id":"n1"'*'"tool_name":"Bash"'*'"bytes":40000'*)
+      echo "  ok    nudge log line has structured tool_name and bytes fields (2.4)" ;;
+    *) echo "  FAIL  nudge log line missing structured fields: $log"; fail=1 ;;
+  esac
+  if command -v python3 >/dev/null 2>&1; then
+    if printf '%s' "$log" | python3 -c 'import json, sys; json.load(sys.stdin)' >/dev/null 2>&1; then
+      echo "  ok    nudge log line is valid JSON"
+    else
+      echo "  FAIL  nudge log line is not valid JSON: $log"; fail=1
+    fi
+  fi
 }
 
 if command -v jq >/dev/null 2>&1; then
