@@ -1,5 +1,5 @@
 {
-  "description": "headroom: injects the delegation rules every session, checks Agent and Workflow spawns, optionally blocks delegable work in the main session, nudges after a large tool output, and tells a worker whose own report is too long to shorten it before stopping.",
+  "description": "headroom: injects the delegation rules every session, checks Agent and Workflow spawns, optionally blocks delegable work in the main session, nudges after a large tool output, tells a worker whose own report is too long to shorten it before stopping, and logs the main session's context size once per turn.",
   "hooks": {
     "SessionStart": [
       {
@@ -75,6 +75,17 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/report-warning.sh\"",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/context-size.sh\"",
+            "timeout": 5
           }
         ]
       }

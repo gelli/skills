@@ -706,6 +706,88 @@ else
 fi
 
 # ======================================================================
+# context-size.sh
+# ======================================================================
+
+run_context_size_matrix() { # label
+  echo "$1"
+  data="$tmp/context-size-data"
+  rm -rf "$data"
+  mkdir -p "$data"
+
+  # 2.3, fixture A: the tail holds a real assistant-with-usage entry
+  # followed by a trailing non-assistant line. context_tokens sums input +
+  # cache_read + cache_creation (not output_tokens, which isn't part of
+  # what the next prompt re-sends) from that entry, and model is its model.
+  fixture_a="$tmp/context-size-fixture-a.jsonl"
+  cat >"$fixture_a" <<'JSONL'
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-5","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":500,"cache_creation_input_tokens":50}}}
+{"type":"user","message":{"role":"user","content":"trailing, not assistant"}}
+JSONL
+  input=$(printf '{"transcript_path":"%s"}' "$fixture_a")
+  out=$(printf '%s' "$input" | CLAUDE_PLUGIN_DATA="$data" "$hooks/context-size.sh" 2>/dev/null)
+  check "never prints to the model (fixture A)" "" "$out"
+  log=$(cat "$data/headroom.log.jsonl" 2>/dev/null)
+  case "$log" in
+    *'"event":"context"'*'"hook":"context-size"'*'"model":"claude-sonnet-5"'*'"context_tokens":650'*)
+      echo "  ok    context log line sums input + cache_read + cache_creation, right model" ;;
+    *) echo "  FAIL  context log line missing or wrong: $log"; fail=1 ;;
+  esac
+  if command -v python3 >/dev/null 2>&1; then
+    if printf '%s' "$log" | python3 -c 'import json, sys; json.load(sys.stdin)' >/dev/null 2>&1; then
+      echo "  ok    context log line is valid JSON"
+    else
+      echo "  FAIL  context log line is not valid JSON: $log"; fail=1
+    fi
+  fi
+
+  # 2.3, fixture B: proves the hook reads only the tail. A usable
+  # assistant-with-usage entry sits at the very top of the file, followed by
+  # 250 non-assistant lines -- more than the 200-line tail window -- so
+  # nothing usable remains in the last 200 lines. A future regression that
+  # parses the whole file would wrongly find and log the top entry; reading
+  # only the tail must stay silent instead.
+  data_b="$tmp/context-size-data-b"
+  rm -rf "$data_b"
+  mkdir -p "$data_b"
+  fixture_b="$tmp/context-size-fixture-b.jsonl"
+  {
+    echo '{"type":"assistant","message":{"id":"msg_top","model":"claude-opus-5-5","usage":{"input_tokens":9999,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
+    i=0
+    while [ $i -lt 250 ]; do
+      echo '{"type":"user","message":{"role":"user","content":"filler"}}'
+      i=$((i + 1))
+    done
+  } >"$fixture_b"
+  input=$(printf '{"transcript_path":"%s"}' "$fixture_b")
+  out=$(printf '%s' "$input" | CLAUDE_PLUGIN_DATA="$data_b" "$hooks/context-size.sh" 2>/dev/null)
+  check "never prints to the model (fixture B)" "" "$out"
+  check "tail-only read: entry outside the last 200 lines is never logged" "" \
+    "$(cat "$data_b/headroom.log.jsonl" 2>/dev/null)"
+
+  # Missing transcript_path, unreadable file, and unparseable input all
+  # degrade to silent, no log, never a block.
+  check "missing transcript_path stays silent" "" \
+    "$(printf '{}' | CLAUDE_PLUGIN_DATA="$data" "$hooks/context-size.sh" 2>/dev/null)"
+  check "unreadable transcript stays silent" "" \
+    "$(printf '{"transcript_path":"/nonexistent-transcript-xyz.jsonl"}' | CLAUDE_PLUGIN_DATA="$data" "$hooks/context-size.sh" 2>/dev/null)"
+  check "unparseable input stays silent" "" \
+    "$(printf 'not json' | CLAUDE_PLUGIN_DATA="$data" "$hooks/context-size.sh" 2>/dev/null)"
+}
+
+if command -v jq >/dev/null 2>&1; then
+  run_context_size_matrix "context-size via jq"
+else
+  echo "jq not installed; skipping context-size jq path"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  HEADROOM_PARSER=python3 run_context_size_matrix "context-size via python3"
+else
+  echo "python3 not installed; skipping context-size python3 path"
+fi
+
+# ======================================================================
 # inject-rules.sh
 # ======================================================================
 
