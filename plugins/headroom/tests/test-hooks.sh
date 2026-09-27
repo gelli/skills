@@ -6,6 +6,7 @@ set -u
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/.." && pwd)
 hooks="$root/hooks"
+scripts="$root/scripts"
 fail=0
 
 check() { # label expected actual
@@ -818,6 +819,156 @@ if [ -r "$real_rules" ]; then
   esac
 else
   echo "  skip  rules.md not present yet (written by the other worker)"
+fi
+
+# ======================================================================
+# scripts/usage.sh
+# ======================================================================
+
+run_usage_matrix() { # label
+  echo "$1"
+  now=$(date +%s)
+  past_100=$((now - 100))
+  past_50=$((now - 50))
+  old_ts=$((now - 700000)) # ~8.1 days ago: outside the 7d and 5h windows.
+
+  fixture="$tmp/usage-fixture.jsonl"
+  cat >"$fixture" <<EOF
+{"ts":$now,"event":"allow","hook":"check-agent","session_id":"s1","subagent_type":"headroom:scout","role":"scout","model":"default:haiku","raised":false,"isolation":"","run_in_background":false,"named":false}
+{"ts":$now,"event":"allow","hook":"check-agent","session_id":"s1","subagent_type":"headroom:scout","role":"scout","model":"sonnet","raised":true,"isolation":"","run_in_background":false,"named":false}
+{"ts":$now,"event":"allow","hook":"check-agent","session_id":"s2","subagent_type":"headroom:implementer","role":"implementer","model":"default:sonnet","raised":false,"isolation":"","run_in_background":true,"named":false}
+{"ts":$now,"event":"deny","hook":"check-agent","detail":"headroom: model deny"}
+{"ts":$now,"event":"usage","hook":"report-warning","session_id":"s1","agent_type":"headroom:scout","agent_id":"a1","model":"claude-haiku-4-5","turns":1,"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":0,"report_bytes":900,"report_lines":70,"transcript":"ok","stop_hook_active":false}
+{"ts":$now,"event":"usage","hook":"report-warning","session_id":"s1","agent_type":"headroom:scout","agent_id":"a1","model":"claude-haiku-4-5","turns":2,"input_tokens":15,"output_tokens":8,"cache_read_input_tokens":100,"cache_creation_input_tokens":0,"report_bytes":150,"report_lines":30,"transcript":"ok","stop_hook_active":false}
+{"ts":$now,"event":"usage","hook":"report-warning","session_id":"s1","agent_type":"headroom:scout","agent_id":"a2","model":"claude-haiku-4-5","turns":1,"input_tokens":20,"output_tokens":10,"cache_read_input_tokens":50,"cache_creation_input_tokens":5,"report_bytes":300,"report_lines":8,"transcript":"ok","stop_hook_active":false}
+{"ts":$now,"event":"usage","hook":"report-warning","session_id":"s2","agent_type":"headroom:implementer","agent_id":"a3","model":"claude-sonnet-5","turns":3,"input_tokens":1000,"output_tokens":500,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"report_bytes":400,"report_lines":30,"transcript":"ok","stop_hook_active":false}
+{"ts":$now,"event":"nudge","hook":"nudge","session_id":"s1","tool_name":"Bash","bytes":40000}
+{"ts":$now,"event":"nudge","hook":"nudge","session_id":"s3","tool_name":"Read","bytes":50000}
+{"ts":$now,"event":"block","hook":"block","detail":"Bash: npm test"}
+{"ts":$past_100,"event":"context","hook":"context-size","session_id":"s1","model":"claude-sonnet-5","context_tokens":2000}
+{"ts":$past_50,"event":"context","hook":"context-size","session_id":"s1","model":"claude-sonnet-5","context_tokens":1000}
+{"ts":$now,"event":"context","hook":"context-size","session_id":"s1","model":"claude-sonnet-5","context_tokens":1500}
+{"ts":$old_ts,"event":"nudge","hook":"nudge","session_id":"s4","tool_name":"Bash","bytes":60000}
+EOF
+
+  # --window all: both worker groups aggregated. agent_id a1 stops twice
+  # (an over-limit report blocked, then resent -- see report-warning.sh);
+  # its second line's counts are already cumulative from the whole
+  # transcript, so the row must reflect only that last line for a1 (input
+  # 15, output 8, cache_read 100, report_bytes 150), not the sum of both a1
+  # lines. Summed with a2 (input 20, output 10, cache_read 50, cache_write
+  # 5, report_bytes 300): spawns 2, input 35, output 18, cache_read 150,
+  # cache_write 5, report_bytes 450, tokens/report_byte (35+18+150+5)/450 =
+  # 0.46. A regression that sums every usage line per agent_id instead of
+  # deduping would double a1's contribution and fail this check. Context
+  # latest vs max per session is distinguished, all four counters are
+  # checked, and both suppressed sessions (a nudge with no allowed spawn
+  # anywhere in the window) are listed.
+  out=$("$scripts/usage.sh" --window all "$fixture" 2>&1)
+  echo "$out" | grep -Eq 'headroom:implementer[[:space:]]+claude-sonnet-5[[:space:]]+1[[:space:]]+1000[[:space:]]+500[[:space:]]+0[[:space:]]+0[[:space:]]+400[[:space:]]+3\.75' \
+    && echo "  ok    implementer worker row: spawns/tokens/report_bytes/tok-per-byte (all)" \
+    || { echo "  FAIL  implementer worker row wrong (all): $out"; fail=1; }
+  echo "$out" | grep -Eq 'headroom:scout[[:space:]]+claude-haiku-4-5[[:space:]]+2[[:space:]]+35[[:space:]]+18[[:space:]]+150[[:space:]]+5[[:space:]]+450[[:space:]]+0\.46' \
+    && echo "  ok    scout worker row dedups a1's two stops (last line wins), sums with a2 (all)" \
+    || { echo "  FAIL  scout worker row wrong (all): $out"; fail=1; }
+  echo "$out" | grep -Eq 's1[[:space:]]+claude-sonnet-5[[:space:]]+1500[[:space:]]+2000' \
+    && echo "  ok    context row: latest 1500 (most recent ts), max 2000 (highest seen) (all)" \
+    || { echo "  FAIL  context row wrong (all): $out"; fail=1; }
+  echo "$out" | grep -Fq "nudges: 3   blocks: 1   denies: 1   raises: 1 (of 3 allowed spawns)" \
+    && echo "  ok    counts: nudges/blocks/denies/raises (all)" \
+    || { echo "  FAIL  counts line wrong (all): $out"; fail=1; }
+  printf '%s\n' "$out" | grep -Eq '^  s3$' && printf '%s\n' "$out" | grep -Eq '^  s4$' \
+    && echo "  ok    both nudge-but-no-spawn sessions listed (all)" \
+    || { echo "  FAIL  suppressed sessions missing (all): $out"; fail=1; }
+
+  # Default window (7d): the old nudge (~8.1 days back) drops out of both
+  # the count and the suppressed-session list, but s3's still-recent nudge
+  # does not. Session ids are matched anchored to their own printed line
+  # (two leading spaces, nothing else), not as a bare substring: $tmp is a
+  # random mktemp path and could otherwise coincidentally contain "s3"/"s4".
+  out=$("$scripts/usage.sh" "$fixture" 2>&1)
+  echo "$out" | grep -Fq "nudges: 2   blocks: 1   denies: 1   raises: 1 (of 3 allowed spawns)" \
+    && echo "  ok    counts exclude the out-of-window nudge (default 7d)" \
+    || { echo "  FAIL  counts line wrong (7d): $out"; fail=1; }
+  if printf '%s\n' "$out" | grep -Eq '^  s4$'; then
+    echo "  FAIL  s4 should drop out of the 7d window: $out"; fail=1
+  elif printf '%s\n' "$out" | grep -Eq '^  s3$'; then
+    echo "  ok    s3 still listed, s4 dropped (default 7d)"
+  else
+    echo "  FAIL  s3 missing from suppressed sessions (7d): $out"; fail=1
+  fi
+
+  # --window 5h: same exclusion, narrower window; also checks the window
+  # label in the header.
+  out=$("$scripts/usage.sh" --window 5h "$fixture" 2>&1)
+  case "$out" in
+    *"window: 5h"*) echo "  ok    window label reflects --window 5h" ;;
+    *) echo "  FAIL  window label missing for 5h: $out"; fail=1 ;;
+  esac
+  echo "$out" | grep -Fq "nudges: 2   blocks: 1   denies: 1   raises: 1 (of 3 allowed spawns)" \
+    && echo "  ok    counts exclude the out-of-window nudge (5h)" \
+    || { echo "  FAIL  counts line wrong (5h): $out"; fail=1; }
+
+  # Unknown --window value is rejected, not silently ignored.
+  out=$("$scripts/usage.sh" --window 3d "$fixture" 2>/dev/null)
+  rc=$?
+  check "unknown --window value exits non-zero" "2" "$rc"
+  check "unknown --window value prints nothing to stdout" "" "$out"
+
+  # Path resolution: no argument falls back to
+  # $CLAUDE_PLUGIN_DATA/headroom.log.jsonl.
+  data="$tmp/usage-plugin-data"
+  rm -rf "$data"
+  mkdir -p "$data"
+  cp "$fixture" "$data/headroom.log.jsonl"
+  out=$(CLAUDE_PLUGIN_DATA="$data" "$scripts/usage.sh" --window all 2>&1)
+  case "$out" in
+    *"$data/headroom.log.jsonl"*) echo "  ok    falls back to \$CLAUDE_PLUGIN_DATA/headroom.log.jsonl" ;;
+    *) echo "  FAIL  did not fall back to \$CLAUDE_PLUGIN_DATA: $out"; fail=1 ;;
+  esac
+
+  # Path resolution: with neither an argument nor $CLAUDE_PLUGIN_DATA
+  # pointing at a real file, and no ~/.claude/plugins/data/headroom*/ under
+  # a throwaway HOME, this fails loudly instead of silently printing an
+  # empty report.
+  fake_home="$tmp/usage-fake-home"
+  rm -rf "$fake_home"
+  mkdir -p "$fake_home"
+  stderr_file="$tmp/usage-stderr.txt"
+  out=$(HOME="$fake_home" CLAUDE_PLUGIN_DATA=/nonexistent "$scripts/usage.sh" 2>"$stderr_file")
+  rc=$?
+  check "no log file found: exits non-zero" "1" "$rc"
+  check "no log file found: prints nothing to stdout" "" "$out"
+  errline=$(cat "$stderr_file" 2>/dev/null)
+  rm -f "$stderr_file"
+  case "$errline" in
+    *"no readable headroom.log.jsonl"*) echo "  ok    missing log file notes the gap on stderr" ;;
+    *) echo "  FAIL  missing log file did not explain itself: $errline"; fail=1 ;;
+  esac
+
+  # Path resolution: the newest ~/.claude/plugins/data/headroom*/ directory
+  # wins, by mtime, over an older one.
+  rm -rf "$fake_home"
+  mkdir -p "$fake_home/.claude/plugins/data/headroom-old" "$fake_home/.claude/plugins/data/headroom-inline"
+  printf '{"ts":1,"event":"nudge","hook":"nudge","session_id":"old","tool_name":"Bash","bytes":1}\n' >"$fake_home/.claude/plugins/data/headroom-old/headroom.log.jsonl"
+  sleep 1
+  printf '{"ts":1,"event":"nudge","hook":"nudge","session_id":"newest","tool_name":"Bash","bytes":1}\n' >"$fake_home/.claude/plugins/data/headroom-inline/headroom.log.jsonl"
+  out=$(HOME="$fake_home" CLAUDE_PLUGIN_DATA=/nonexistent "$scripts/usage.sh" --window all 2>&1)
+  case "$out" in
+    *"headroom-inline/headroom.log.jsonl"*) echo "  ok    picks the newest headroom*/ directory by mtime" ;;
+    *) echo "  FAIL  did not pick the newest headroom*/ directory: $out"; fail=1 ;;
+  esac
+}
+
+if command -v jq >/dev/null 2>&1; then
+  run_usage_matrix "usage.sh via jq"
+else
+  echo "jq not installed; skipping usage.sh jq path"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  HEADROOM_PARSER=python3 run_usage_matrix "usage.sh via python3"
+else
+  echo "python3 not installed; skipping usage.sh python3 path"
 fi
 
 [ $fail -eq 0 ] && echo "all hook tests passed" || { echo "hook tests FAILED"; exit 1; }
