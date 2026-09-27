@@ -74,7 +74,7 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/report-warning.sh\"",
-            "timeout": 5
+            "timeout": 15
           }
         ]
       }

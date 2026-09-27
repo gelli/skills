@@ -533,6 +533,69 @@ line3"
   check "stop_hook_active true stays silent even over limit" "" "$(printf '{"agent_type":"headroom:scout","stop_hook_active":true,"last_assistant_message":"%s"}' "$esc_long" | "$hooks/report-warning.sh" 2>/dev/null)"
   check "empty agent_type stays silent even over limit" "" "$(printf '{"agent_type":"","last_assistant_message":"%s"}' "$esc_long" | "$hooks/report-warning.sh" 2>/dev/null)"
   check "unparseable input silent" "" "$(printf 'not json' | "$hooks/report-warning.sh" 2>/dev/null)"
+
+  # 2.1: usage logging fires on every SubagentStop, with token stats read
+  # from the worker's own transcript. Fixture: two lines share message.id
+  # "msg_1" (a repeated content-block line) with different usage, one line
+  # is not JSON at all, and "msg_2" is a distinct turn. Counting msg_1 once,
+  # with its last usage, gives turns=2, input=17, output=23, cache_read=150,
+  # cache_creation=9, model claude-sonnet-5 (the last one seen).
+  data="$tmp/report-warning-data"
+  fixture="$tmp/report-warning-fixture.jsonl"
+  cat >"$fixture" <<'JSONL'
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"id":"msg_1","model":"claude-haiku-4-5","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}}
+{"type":"assistant","message":{"id":"msg_1","model":"claude-haiku-4-5","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}}
+not even json
+{"type":"assistant","message":{"id":"msg_2","model":"claude-sonnet-5","usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":50,"cache_creation_input_tokens":9}}}
+JSONL
+
+  rm -rf "$data"
+  mkdir -p "$data"
+  input=$(printf '{"agent_type":"headroom:scout","agent_id":"agent-xyz","agent_transcript_path":"%s","last_assistant_message":"short report"}' "$fixture")
+  out=$(printf '%s' "$input" | CLAUDE_PLUGIN_DATA="$data" "$hooks/report-warning.sh" 2>/dev/null)
+  check "usage log fixture: silent (short report, under limits)" "" "$out"
+  log=$(cat "$data/headroom.log.jsonl" 2>/dev/null)
+  case "$log" in
+    *'"event":"usage"'*'"agent_type":"headroom:scout"'*'"agent_id":"agent-xyz"'*'"model":"claude-sonnet-5"'*'"turns":2'*'"input_tokens":17'*'"output_tokens":23'*'"cache_read_input_tokens":150'*'"cache_creation_input_tokens":9'*'"transcript":"ok"'*)
+      echo "  ok    usage log line has deduped, summed transcript stats" ;;
+    *) echo "  FAIL  usage log line missing or wrong: $log"; fail=1 ;;
+  esac
+  if command -v python3 >/dev/null 2>&1; then
+    if printf '%s' "$log" | python3 -c 'import json, sys; json.load(sys.stdin)' >/dev/null 2>&1; then
+      echo "  ok    usage log line is valid JSON"
+    else
+      echo "  FAIL  usage log line is not valid JSON: $log"; fail=1
+    fi
+  fi
+
+  # 2.1: logging is not limited to headroom roles; a non-headroom agent_type
+  # with a missing transcript still gets a log line, with zero counts, and
+  # is never blocked.
+  data_missing="$tmp/report-warning-data-missing"
+  rm -rf "$data_missing"
+  mkdir -p "$data_missing"
+  input=$(printf '{"agent_type":"Explore","agent_id":"agent-abc","agent_transcript_path":"/nonexistent-transcript-xyz.jsonl","last_assistant_message":"hi"}')
+  out=$(printf '%s' "$input" | CLAUDE_PLUGIN_DATA="$data_missing" "$hooks/report-warning.sh" 2>/dev/null)
+  check "Explore with a missing transcript still never blocks" "" "$out"
+  log=$(cat "$data_missing/headroom.log.jsonl" 2>/dev/null)
+  case "$log" in
+    *'"agent_type":"Explore"'*'"turns":0'*'"input_tokens":0'*'"transcript":"missing"'*)
+      echo "  ok    missing transcript logs zero counts, not a crash" ;;
+    *) echo "  FAIL  missing-transcript log line wrong: $log"; fail=1 ;;
+  esac
+
+  # 2.1: log once per stop, even when the block fires.
+  data_block="$tmp/report-warning-data-block"
+  rm -rf "$data_block"
+  mkdir -p "$data_block"
+  out=$(printf '{"agent_type":"headroom:scout","last_assistant_message":"%s"}' "$esc_long" | CLAUDE_PLUGIN_DATA="$data_block" "$hooks/report-warning.sh" 2>/dev/null)
+  case "$out" in
+    *'"decision":"block"'*) : ;;
+    *) echo "  FAIL  expected a block with CLAUDE_PLUGIN_DATA set: $out"; fail=1 ;;
+  esac
+  count=$(grep -c '"event":"usage"' "$data_block/headroom.log.jsonl" 2>/dev/null)
+  check "usage logged exactly once even when the block fires" "1" "$count"
 }
 
 if command -v jq >/dev/null 2>&1; then
