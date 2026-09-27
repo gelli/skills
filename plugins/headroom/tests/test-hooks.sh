@@ -291,6 +291,22 @@ block_decision() { # json
   esac
 }
 
+# block_reason: the raw hook output, for tests that need the deny message
+# text rather than just the allow/deny classification.
+block_reason() { # json
+  printf '%s' "$1" | "$hooks/block.sh" 2>/dev/null
+}
+
+# delegate_wording: does a deny message tell the model to delegate to
+# headroom:scout? Built-in matches must say yes; block_patterns matches
+# must say no (plan 1.4).
+delegate_wording() { # deny output
+  case "$1" in
+    *deleg*|*scout*) printf yes ;;
+    *) printf no ;;
+  esac
+}
+
 run_block_matrix() { # label
   echo "$1"
   unset CLAUDE_PLUGIN_OPTION_HARD_BLOCKS CLAUDE_PLUGIN_OPTION_BLOCK_PATTERNS HEADROOM_BLOCKS
@@ -361,6 +377,20 @@ EOF
   check "worker call passes (agent_id)" allow "$(block_decision '{"session_id":"s1","agent_id":"a1","tool_name":"Bash","tool_input":{"command":"npm test"}}')"
   check "HEADROOM_BLOCKS=0 overrides"   allow "$(HEADROOM_BLOCKS=0 block_decision '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"npm test"}}')"
   check "extra block_patterns"         deny  "$(CLAUDE_PLUGIN_OPTION_BLOCK_PATTERNS='^custom-runner' block_decision '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"custom-runner suite"}}')"
+
+  # A block_patterns match is a user's own rule, not necessarily delegable
+  # test/build work, so its deny message must stay neutral: no "delegate"
+  # wording, but it names block_patterns and points at /headroom:inline. A
+  # built-in match keeps today's delegate-to-scout message.
+  custom_reason=$(CLAUDE_PLUGIN_OPTION_BLOCK_PATTERNS='^custom-runner' block_reason '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"custom-runner suite"}}')
+  check "block_patterns match has no delegate wording" no "$(delegate_wording "$custom_reason")"
+  case "$custom_reason" in
+    *block_patterns*'/headroom:inline'*) neutral_ok=yes ;;
+    *) neutral_ok=no ;;
+  esac
+  check "block_patterns match names the pattern and /headroom:inline" yes "$neutral_ok"
+  builtin_reason=$(block_reason '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"npm test"}}')
+  check "built-in match keeps delegate wording" yes "$(delegate_wording "$builtin_reason")"
 
   check "Grep repo-wide blocked"        deny  "$(block_decision '{"session_id":"s1","tool_name":"Grep","tool_input":{"pattern":"TODO"}}')"
   check "Grep with glob exempt"         allow "$(block_decision '{"session_id":"s1","tool_name":"Grep","tool_input":{"pattern":"TODO","glob":"*.ts"}}')"

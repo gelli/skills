@@ -29,7 +29,7 @@ Known limitation: the Bash block reads commands as text. A `<<WORD` inside a quo
 ## Settings
 
 - `hard_blocks` (default off): refuse delegable work in the main session instead of just nudging. Lift it for one call or the rest of a session with `/headroom:inline` or `/headroom:inline session`.
-- `block_patterns`: extra extended-regex patterns, matched the same way as the built-in list, for commands specific to your repo.
+- `block_patterns`: extra extended-regex patterns, matched the same way as the built-in list, for commands specific to your repo. It is not a safety guard: it only applies to the main session, only while `hard_blocks` is on, and is liftable with `/headroom:inline` or `HEADROOM_BLOCKS=0`; for commands you actually want stopped, use `/sandbox` or `permissions.deny`.
 - `HEADROOM_BLOCKS=0`: an environment kill switch that disables blocking outright, independent of `hard_blocks`.
 
 Recommended: set `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` as a fallback for any agent spawned without an explicit model, including workflow agents that don't name one; headroom's own three roles always carry a default and don't need it.

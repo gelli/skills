@@ -20,7 +20,10 @@
 # What remains is split into segments on &&, ||, ;, |, and newlines.
 # Leading env assignments and a leading "rtk " are stripped from each
 # segment before matching; the built-in pattern (plus block_patterns) is
-# matched against every segment.
+# matched against every segment. A built-in match gets today's message,
+# which points at headroom:scout; a block_patterns match gets a neutral
+# deny instead, since the user may have blocked it for reasons scout
+# doesn't fix.
 # Grep: repo-wide means no path, or path "." or CLAUDE_PROJECT_DIR (trailing
 # slash tolerant), and no glob.
 #
@@ -189,6 +192,7 @@ strip_subshells() {
 }
 
 matched_seg=""
+matched_source=""
 if [ "$tool_name" = Bash ] && [ -n "$command" ]; then
   scrubbed=$(printf '%s' "$command" | strip_heredocs | strip_quotes | strip_subshells)
   segments=$(printf '%s' "$scrubbed" | sed -E 's/(&&|\|\||;|\|)/\
@@ -198,10 +202,12 @@ if [ "$tool_name" = Bash ] && [ -n "$command" ]; then
     [ -n "$seg" ] || continue
     if printf '%s' "$seg" | grep -Eq "$builtin_pattern"; then
       matched_seg=$seg
+      matched_source=builtin
       break
     fi
     if [ -n "$block_patterns" ] && printf '%s' "$seg" | grep -Eq "$block_patterns"; then
       matched_seg=$seg
+      matched_source=user
       break
     fi
   done <<EOF
@@ -246,7 +252,11 @@ fi
 
 if [ -n "$matched_seg" ]; then
   hr_log block block "$tool_name: $matched_seg"
-  hr_deny "headroom: \"$matched_seg\" is delegable test/build/lint/type-check work; hard_blocks is on for the main session. Delegate to headroom:scout, or ask the user to run /headroom:inline (this call only) or /headroom:inline session."
+  if [ "$matched_source" = user ]; then
+    hr_deny "headroom: \"$matched_seg\" matched a user block_patterns entry; hard_blocks is on for the main session. Ask the user to run /headroom:inline (this call only) or /headroom:inline session to lift it."
+  else
+    hr_deny "headroom: \"$matched_seg\" is delegable test/build/lint/type-check work; hard_blocks is on for the main session. Delegate to headroom:scout, or ask the user to run /headroom:inline (this call only) or /headroom:inline session."
+  fi
   exit 0
 fi
 
