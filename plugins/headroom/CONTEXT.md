@@ -26,6 +26,10 @@ _Avoid_: offloading, outsourcing
 The prompt the orchestrator writes for a worker; the worker's only source of context.
 _Avoid_: task description, instructions
 
+**Spec**:
+The durable statement of what a change must do; kept in a file when the work spans more than one worker, so the brief points to it instead of restating it.
+_Avoid_: requirements doc, PRD
+
 **Report**:
 The short final message a worker returns to the orchestrator; the only part of its work that enters the main context.
 _Avoid_: result, output, return value
@@ -41,7 +45,7 @@ A worker type shipped by the plugin, fixed by its tool set and instructions, wit
 _Avoid_: agent type, persona, tier
 
 **Scout**:
-The role that changes no project files, for single-shape jobs: search, logs, test and build runs, doc lookups.
+The role for single-shape jobs: search, logs, test and build runs, doc lookups. The ban on Edit and Write is enforced; beyond that, "changes no project files" depends on instructions, since it also has Bash and MCP tools.
 _Avoid_: explorer, researcher
 
 **Implementer**:
@@ -49,7 +53,7 @@ The role that writes code from a brief and runs its own tests.
 _Avoid_: executor, coder, builder
 
 **Reviewer**:
-The role that changes no project files and judges work against its spec and for quality, from the code rather than the implementer's report.
+The role that judges work against its spec and for quality, from the code rather than the implementer's report. The ban on Edit and Write is enforced; beyond that, "changes no project files" depends on instructions, since it also has Bash.
 _Avoid_: verifier, auditor, checker
 
 **Escalation**:
