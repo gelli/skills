@@ -18,10 +18,11 @@
 # SubagentStop's additionalContext and decision:"block" both go to the
 # SUBAGENT, never the parent session (a PostToolUse hook on Agent would be
 # needed to reach the parent). The block is skipped when stop_hook_active is
-# true (already looping once; do not loop forever). If a background worker
-# delivered its report through a hand-back (SubagentHandback), this hook
-# only ever sees the worker's closing text in last_assistant_message, not
-# the delivered report, and so does nothing about the report's real length.
+# true (already looping once; do not loop forever); that guard resets each
+# time the orchestrator sends the worker a new message. Phase 0's C1 check
+# found last_assistant_message holds the worker's full report in both
+# modes, including one delivered through a hand-back (SubagentHandback), so
+# the block applies the same way to background and foreground workers.
 #
 # Parses hook input with jq, falling back to python3 (HEADROOM_PARSER=python3
 # forces the python3 path for tests); with neither, or on unparseable input,
