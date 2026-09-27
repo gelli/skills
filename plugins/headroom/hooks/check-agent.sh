@@ -2,7 +2,9 @@
 # headroom PreToolUse hook for the Agent tool: enforces that a role (scout,
 # implementer, reviewer) may only be spawned at its default model or higher,
 # never lower, never fable/mythos, never "inherit", and never via
-# subagent_type "fork". Explore and Plan (their own model) pass through.
+# subagent_type "fork". Explore inherits the main session's model, capped at
+# Opus, not its own; it and Plan pass through unchecked for now (denying a
+# model-less Explore/Plan spawn is deferred until there is usage data).
 # subagent_type empty, "general-purpose", or "claude" need an explicit model.
 # Any other named agent type is left to its own definition.
 #
@@ -98,6 +100,9 @@ case "$role" in
     deny_and_log "headroom: headroom:$role's default model is $default_name; roles may only be raised, never lowered. Re-issue with model omitted (uses $default_name) or raised to sonnet or opus."
     ;;
   Explore|Plan)
+    # Explore actually runs on the main session's model (capped at Opus), not
+    # its own. Denying a model-less spawn here is deferred to plan item 4.7,
+    # once logs show how often Explore runs on Opus in practice.
     exit 0
     ;;
   ""|general-purpose|claude)
