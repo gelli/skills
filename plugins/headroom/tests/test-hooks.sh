@@ -148,6 +148,65 @@ else
   echo "python3 not installed; skipping check-agent python3 path"
 fi
 
+# check-agent.sh: allowed spawns are logged (2.2). Denies were already
+# covered by the log-based tests above via hr_log; this checks the new
+# hr_log_fields line for an allow.
+run_agent_log_matrix() { # label
+  echo "$1"
+  data="$tmp/agent-log-data"
+  rm -rf "$data"
+  mkdir -p "$data"
+  (
+    export CLAUDE_PLUGIN_DATA="$data"
+    printf '%s' '{"session_id":"s1","tool_input":{"subagent_type":"headroom:scout"}}' | "$hooks/check-agent.sh" >/dev/null 2>&1
+    printf '%s' '{"session_id":"s1","tool_input":{"subagent_type":"headroom:scout","model":"sonnet"}}' | "$hooks/check-agent.sh" >/dev/null 2>&1
+  )
+  lines=$(cat "$data/headroom.log.jsonl" 2>/dev/null)
+  first=$(printf '%s\n' "$lines" | sed -n 1p)
+  second=$(printf '%s\n' "$lines" | sed -n 2p)
+  if command -v python3 >/dev/null 2>&1; then
+    ok=$(printf '%s' "$first" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("no"); sys.exit()
+print("yes" if (
+    d.get("event") == "allow" and d.get("hook") == "check-agent" and
+    d.get("session_id") == "s1" and d.get("subagent_type") == "headroom:scout" and
+    d.get("role") == "scout" and d.get("model") == "default:haiku" and
+    d.get("raised") is False and d.get("run_in_background") is False
+) else "no")
+')
+    check "allowed spawn logs a line, model default, not raised" yes "$ok"
+    ok2=$(printf '%s' "$second" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("no"); sys.exit()
+print("yes" if d.get("raised") is True and d.get("model") == "sonnet" else "no")
+')
+    check "raised spawn logs raised true" yes "$ok2"
+  else
+    case "$first" in
+      *'"event":"allow"'*'"hook":"check-agent"'*) echo "  ok    allowed spawn logs a line" ;;
+      *) echo "  FAIL  allowed spawn did not log: $first"; fail=1 ;;
+    esac
+  fi
+}
+
+if command -v jq >/dev/null 2>&1; then
+  run_agent_log_matrix "check-agent allow logging via jq"
+else
+  echo "jq not installed; skipping check-agent allow logging jq path"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  HEADROOM_PARSER=python3 run_agent_log_matrix "check-agent allow logging via python3"
+else
+  echo "python3 not installed; skipping check-agent allow logging python3 path"
+fi
+
 # ======================================================================
 # check-workflow.sh
 # ======================================================================

@@ -14,6 +14,11 @@
 # full model IDs work too (claude-opus-5-5, us.anthropic.claude-haiku-4-5...,
 # "opus[1m]"). Role defaults: scout=haiku, implementer=sonnet, reviewer=sonnet.
 #
+# Every allowed spawn is logged with hr_log_fields (subagent_type, role,
+# model as passed or "default:<role default>", whether it was raised,
+# isolation, run_in_background, whether name was set); denies keep logging
+# through hr_log, as before.
+#
 # Parses hook input with jq, falling back to python3 (HEADROOM_PARSER=python3
 # forces the python3 path for tests); with neither, or on unparseable input,
 # it allows silently and notes the gap on stderr.
@@ -27,7 +32,9 @@ fields=$(hr_fields '
   "parsed",
   (.tool_input.subagent_type // ""),
   (.tool_input.model // ""),
-  (.tool_input.name // "")
+  (.tool_input.name // ""),
+  (.tool_input.isolation // "" | if type == "string" then . else tostring end),
+  (if (.tool_input.run_in_background // false) then "true" else "false" end)
 ' '
 import json, sys
 try:
@@ -39,6 +46,13 @@ print("parsed")
 print(t.get("subagent_type") or "")
 print(t.get("model") or "")
 print(t.get("name") or "")
+iso = t.get("isolation")
+if iso is None:
+    iso = ""
+elif not isinstance(iso, str):
+    iso = json.dumps(iso)
+print(iso)
+print("true" if t.get("run_in_background") else "false")
 ')
 rc=$?
 if [ $rc -ne 0 ] || [ "$(printf '%s\n' "$fields" | sed -n 1p)" != parsed ]; then
@@ -49,12 +63,31 @@ fi
 subagent_type=$(printf '%s\n' "$fields" | sed -n 2p)
 model=$(printf '%s\n' "$fields" | sed -n 3p)
 name=$(printf '%s\n' "$fields" | sed -n 4p)
+isolation=$(printf '%s\n' "$fields" | sed -n 5p)
+run_in_background=$(printf '%s\n' "$fields" | sed -n 6p)
 model_lc=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]')
 role=${subagent_type#headroom:}
+if [ -n "$name" ]; then named=true; else named=false; fi
 
 deny_and_log() { # reason
   hr_log deny check-agent "$1"
   hr_deny "$1"
+  exit 0
+}
+
+# allow_and_log <role-for-log> <model-for-log> <raised> -- logs an allowed
+# spawn with the fields Phase 2 needs (2.2), then exits allow. role and
+# raised are only meaningful for scout/implementer/reviewer; every other
+# subagent_type logs role "" and raised false.
+allow_and_log() {
+  hr_log_fields allow check-agent \
+    subagent_type "$subagent_type" \
+    role "$1" \
+    model "$2" \
+    raised "$3" \
+    isolation "$isolation" \
+    run_in_background "$run_in_background" \
+    named "$named"
   exit 0
 }
 
@@ -99,14 +132,17 @@ case "$role" in
       default_rank=2
       default_name=sonnet
     fi
-    [ -n "$model" ] || exit 0
+    if [ -z "$model" ]; then
+      allow_and_log "$role" "default:$default_name" false
+    fi
     rank=$(rank_of "$model_lc")
     if [ -z "$rank" ]; then
       echo "headroom: model \"$model\" for headroom:$role is not a recognised tier (haiku/sonnet/opus); allowing it through unchecked" >&2
-      exit 0
+      allow_and_log "$role" "$model" false
     fi
     if [ "$rank" -ge "$default_rank" ]; then
-      exit 0
+      if [ "$rank" -gt "$default_rank" ]; then raised=true; else raised=false; fi
+      allow_and_log "$role" "$model" "$raised"
     fi
     deny_and_log "headroom: headroom:$role's default model is $default_name; roles may only be raised, never lowered. Re-issue with model omitted (uses $default_name) or raised to sonnet or opus."
     ;;
@@ -114,15 +150,15 @@ case "$role" in
     # Explore actually runs on the main session's model (capped at Opus), not
     # its own. Denying a model-less spawn here is deferred to plan item 4.7,
     # once logs show how often Explore runs on Opus in practice.
-    exit 0
+    allow_and_log "" "$model" false
     ;;
   ""|general-purpose|claude)
     if [ -z "$model" ]; then
       deny_and_log "headroom: subagent_type \"$subagent_type\" has no default model, so it would inherit the orchestrator model. Re-issue the call with an explicit model: haiku, sonnet, or opus."
     fi
-    exit 0
+    allow_and_log "" "$model" false
     ;;
   *)
-    exit 0
+    allow_and_log "" "$model" false
     ;;
 esac
