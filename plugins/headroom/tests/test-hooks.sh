@@ -509,6 +509,14 @@ run_nudge_matrix() { # label
     *additionalContext*) echo "  ok    large non-ASCII payload still nudges" ;;
     *) echo "  FAIL  large non-ASCII payload should nudge"; fail=1 ;;
   esac
+
+  # 1.5: the widened matcher includes mcp__.* (and WebSearch); an
+  # over-threshold response from an MCP tool still nudges.
+  out=$(printf '{"tool_name":"mcp__plugin_context7_context7__query-docs","tool_response":{"result":"%s"}}' "$big" | "$hooks/nudge.sh" 2>/dev/null)
+  case "$out" in
+    *additionalContext*) echo "  ok    over-threshold mcp__ response nudges (1.5)" ;;
+    *) echo "  FAIL  over-threshold mcp__ response should nudge"; fail=1 ;;
+  esac
 }
 
 if command -v jq >/dev/null 2>&1; then

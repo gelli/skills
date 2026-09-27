@@ -1,8 +1,8 @@
 #!/bin/sh
-# headroom PostToolUse hook for Read|Bash|Grep|Glob|WebFetch: in the main
-# session only (never for a worker's own tool calls), nudges once a tool
-# response is large enough that reading it in place is worth delegating to
-# headroom:scout next time.
+# headroom PostToolUse hook for Read|Bash|Grep|Glob|WebFetch|WebSearch|
+# mcp__.*: in the main session only (never for a worker's own tool calls),
+# nudges once a tool response is large enough that reading it in place is
+# worth delegating to headroom:scout next time.
 #
 # Size is the byte length of tool_response, compactly re-serialised as JSON
 # (jq's tojson, or Python's json.dumps with no extra whitespace and
