@@ -5,7 +5,7 @@ A worker spawn gets a written brief and nothing else: GOAL, CONTEXT, SCOPE and R
 ## Considered Options
 
 - **`subagent_type: "fork"`, sharing the orchestrator's context.** Gives a worker everything the orchestrator has, but check-agent.sh's fork branch denies it because it inherits the orchestrator's model unconditionally and ignores `model`, undoing each role's own default.
-- **Paste the orchestrator's relevant context into the brief.** Keeps the model choice, but a brief that grows to hold context drifts as the orchestrator's own context changes, and pastes in the very intermediate output delegation exists to keep out.
+- **Paste the orchestrator's whole context into the brief.** Keeps the model choice, but re-bills the whole conversation on every spawn and carries in the very intermediate output delegation exists to keep out; the brief instead holds what the worker needs, or a spec file's path.
 
 ## Consequences
 
