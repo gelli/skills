@@ -711,7 +711,9 @@ line3"
   # "msg_1" (a repeated content-block line) with different usage, one line
   # is not JSON at all, and "msg_2" is a distinct turn. Counting msg_1 once,
   # with its last usage, gives turns=2, input=17, output=23, cache_read=150,
-  # cache_creation=9, model claude-sonnet-5 (the last one seen).
+  # cache_creation=9, model claude-sonnet-5 (the last one seen). msg_2 also
+  # carries the final text, equal to the input's last_assistant_message, so
+  # the final-entry wait sees it at once and logs complete:true.
   data="$tmp/report-warning-data"
   fixture="$tmp/report-warning-fixture.jsonl"
   cat >"$fixture" <<'JSONL'
@@ -719,7 +721,7 @@ line3"
 {"type":"assistant","message":{"id":"msg_1","model":"claude-haiku-4-5","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}}
 {"type":"assistant","message":{"id":"msg_1","model":"claude-haiku-4-5","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}}
 not even json
-{"type":"assistant","message":{"id":"msg_2","model":"claude-sonnet-5","usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":50,"cache_creation_input_tokens":9}}}
+{"type":"assistant","message":{"id":"msg_2","model":"claude-sonnet-5","content":[{"type":"text","text":"short report"}],"usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":50,"cache_creation_input_tokens":9}}}
 JSONL
 
   rm -rf "$data"
@@ -729,7 +731,7 @@ JSONL
   check "usage log fixture: silent (short report, under limits)" "" "$out"
   log=$(cat "$data/headroom.log.jsonl" 2>/dev/null)
   case "$log" in
-    *'"event":"usage"'*'"agent_type":"headroom:scout"'*'"agent_id":"agent-xyz"'*'"model":"claude-sonnet-5"'*'"turns":2'*'"input_tokens":17'*'"output_tokens":23'*'"cache_read_input_tokens":150'*'"cache_creation_input_tokens":9'*'"transcript":"ok"'*)
+    *'"event":"usage"'*'"agent_type":"headroom:scout"'*'"agent_id":"agent-xyz"'*'"model":"claude-sonnet-5"'*'"turns":2'*'"input_tokens":17'*'"output_tokens":23'*'"cache_read_input_tokens":150'*'"cache_creation_input_tokens":9'*'"transcript":"ok"'*'"complete":true'*)
       echo "  ok    usage log line has deduped, summed transcript stats" ;;
     *) echo "  FAIL  usage log line missing or wrong: $log"; fail=1 ;;
   esac
@@ -773,7 +775,7 @@ JSONL
   check "Explore with a missing transcript still never blocks" "" "$out"
   log=$(cat "$data_missing/headroom.log.jsonl" 2>/dev/null)
   case "$log" in
-    *'"agent_type":"Explore"'*'"turns":0'*'"input_tokens":0'*'"transcript":"missing"'*)
+    *'"agent_type":"Explore"'*'"turns":0'*'"input_tokens":0'*'"transcript":"missing"'*'"complete":false'*)
       echo "  ok    missing transcript logs zero counts, not a crash" ;;
     *) echo "  FAIL  missing-transcript log line wrong: $log"; fail=1 ;;
   esac
@@ -789,6 +791,61 @@ JSONL
   esac
   count=$(grep -c '"event":"usage"' "$data_block/headroom.log.jsonl" 2>/dev/null)
   check "usage logged exactly once even when the block fires" "1" "$count"
+
+  # Race with Claude Code's transcript writes: SubagentStop can fire before
+  # the worker's final entry is in its transcript. Start the hook on the
+  # fixture minus msg_2 and append msg_2 about 300 ms later, as observed in
+  # real sessions: the hook must wait for it and log the full numbers.
+  data_race="$tmp/report-warning-data-race"
+  fixture_race="$tmp/report-warning-fixture-race.jsonl"
+  rm -rf "$data_race"
+  mkdir -p "$data_race"
+  grep -v '"msg_2"' "$fixture" >"$fixture_race"
+  input=$(printf '{"agent_type":"headroom:scout","agent_id":"agent-race","agent_transcript_path":"%s","last_assistant_message":"short report"}' "$fixture_race")
+  ( sleep 0.3; grep '"msg_2"' "$fixture" >>"$fixture_race" ) &
+  out=$(printf '%s' "$input" | CLAUDE_PLUGIN_DATA="$data_race" "$hooks/report-warning.sh" 2>/dev/null)
+  rc=$?
+  wait
+  check "late final entry: silent, exit 0" "0:" "$rc:$out"
+  log=$(cat "$data_race/headroom.log.jsonl" 2>/dev/null)
+  case "$log" in
+    *'"turns":2'*'"input_tokens":17'*'"output_tokens":23'*'"cache_read_input_tokens":150'*'"cache_creation_input_tokens":9'*'"complete":true'*)
+      echo "  ok    waits for a final entry written after the hook started" ;;
+    *) echo "  FAIL  late final entry missed: $log"; fail=1 ;;
+  esac
+
+  # Giving up: the final entry never arrives within the wait. The line is
+  # still logged, with the stale counts and complete:false, never a block.
+  data_stale="$tmp/report-warning-data-stale"
+  rm -rf "$data_stale"
+  mkdir -p "$data_stale"
+  grep -v '"msg_2"' "$fixture" >"$fixture_race"
+  input=$(printf '{"agent_type":"headroom:scout","agent_id":"agent-stale","agent_transcript_path":"%s","last_assistant_message":"short report"}' "$fixture_race")
+  out=$(printf '%s' "$input" | HEADROOM_WAIT_TRIES=1 CLAUDE_PLUGIN_DATA="$data_stale" "$hooks/report-warning.sh" 2>/dev/null)
+  rc=$?
+  check "final entry never written: silent, exit 0" "0:" "$rc:$out"
+  log=$(cat "$data_stale/headroom.log.jsonl" 2>/dev/null)
+  case "$log" in
+    *'"turns":1'*'"input_tokens":10'*'"output_tokens":20'*'"complete":false'*)
+      echo "  ok    gives up and logs the stale counts flagged complete:false" ;;
+    *) echo "  FAIL  timed-out wait logged wrong: $log"; fail=1 ;;
+  esac
+
+  # Ordering guard: an earlier text entry equal to the message, followed by
+  # a user entry (here a stop-hook block reason), is not the final entry.
+  data_order="$tmp/report-warning-data-order"
+  rm -rf "$data_order"
+  mkdir -p "$data_order"
+  {
+    cat "$fixture"
+    echo '{"type":"user","message":{"role":"user","content":"shorten it"}}'
+  } >"$fixture_race"
+  input=$(printf '{"agent_type":"headroom:scout","agent_id":"agent-order","agent_transcript_path":"%s","last_assistant_message":"short report"}' "$fixture_race")
+  printf '%s' "$input" | HEADROOM_WAIT_TRIES=1 CLAUDE_PLUGIN_DATA="$data_order" "$hooks/report-warning.sh" >/dev/null 2>&1
+  case "$(cat "$data_order/headroom.log.jsonl" 2>/dev/null)" in
+    *'"complete":false'*) echo "  ok    matching text followed by a user entry is not taken as the final entry" ;;
+    *) echo "  FAIL  ordering guard: $(cat "$data_order/headroom.log.jsonl" 2>/dev/null)"; fail=1 ;;
+  esac
 }
 
 run_parser_matrix run_report_matrix "report-warning"
@@ -814,12 +871,14 @@ run_context_size_matrix() { # label
 {"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-5","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":500,"cache_creation_input_tokens":50}}}
 {"type":"user","message":{"role":"user","content":"trailing, not assistant"}}
 JSONL
+  # No last_assistant_message: nothing to wait for, so no wait, and the
+  # line says complete:false.
   input=$(printf '{"transcript_path":"%s"}' "$fixture_a")
   out=$(printf '%s' "$input" | CLAUDE_PLUGIN_DATA="$data" "$hooks/context-size.sh" 2>/dev/null)
   check "never prints to the model (fixture A)" "" "$out"
   log=$(cat "$data/headroom.log.jsonl" 2>/dev/null)
   case "$log" in
-    *'"event":"context"'*'"hook":"context-size"'*'"model":"claude-sonnet-5"'*'"context_tokens":650'*)
+    *'"event":"context"'*'"hook":"context-size"'*'"model":"claude-sonnet-5"'*'"context_tokens":650'*'"complete":false'*)
       echo "  ok    context log line sums input + cache_read + cache_creation, right model" ;;
     *) echo "  FAIL  context log line missing or wrong: $log"; fail=1 ;;
   esac
@@ -877,6 +936,64 @@ JSONL
     *'"model":"claude-sonnet-5"'*'"context_tokens":500'*)
       echo "  ok    a <synthetic> tail entry is skipped; the real entry's model/tokens are logged" ;;
     *) echo "  FAIL  <synthetic> entry corrupted the logged model/tokens: $log"; fail=1 ;;
+  esac
+
+  # Race with Claude Code's transcript writes: Stop fires before the final
+  # assistant entry is in the file. Fixture D is a turn whose previous call
+  # (a tool_use, context 1000) is in the file; the final text entry
+  # (context 1300) is appended about 300 ms after the hook starts. The hook
+  # must wait for it, log 1300 and complete:true, not the stale 1000.
+  data_d="$tmp/context-size-data-d"
+  rm -rf "$data_d"
+  mkdir -p "$data_d"
+  fixture_d="$tmp/context-size-fixture-d.jsonl"
+  cat >"$fixture_d" <<'JSONL'
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"id":"msg_a","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}],"usage":{"input_tokens":1,"output_tokens":5,"cache_read_input_tokens":900,"cache_creation_input_tokens":99}}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+JSONL
+  final_d='{"type":"assistant","message":{"id":"msg_b","model":"claude-sonnet-5","content":[{"type":"text","text":"All done.\n"}],"usage":{"input_tokens":1,"output_tokens":7,"cache_read_input_tokens":999,"cache_creation_input_tokens":300}}}'
+  input=$(printf '{"transcript_path":"%s","last_assistant_message":"All done.\\n"}' "$fixture_d")
+  ( sleep 0.3; printf '%s\n' "$final_d" >>"$fixture_d" ) &
+  out=$(printf '%s' "$input" | CLAUDE_PLUGIN_DATA="$data_d" "$hooks/context-size.sh" 2>/dev/null)
+  rc=$?
+  wait
+  check "late final entry: silent, exit 0" "0:" "$rc:$out"
+  log=$(cat "$data_d/headroom.log.jsonl" 2>/dev/null)
+  case "$log" in
+    *'"context_tokens":1300'*'"complete":true'*)
+      echo "  ok    waits for a final entry written after the hook started" ;;
+    *) echo "  FAIL  late final entry missed: $log"; fail=1 ;;
+  esac
+
+  # Giving up: same turn, final entry never written. The stale 1000 is
+  # still logged, flagged complete:false.
+  rm -rf "$data_d"
+  mkdir -p "$data_d"
+  grep -v '"msg_b"' "$fixture_d" >"$fixture_d.tmp" && mv "$fixture_d.tmp" "$fixture_d"
+  out=$(printf '%s' "$input" | HEADROOM_WAIT_TRIES=1 CLAUDE_PLUGIN_DATA="$data_d" "$hooks/context-size.sh" 2>/dev/null)
+  rc=$?
+  check "final entry never written: silent, exit 0" "0:" "$rc:$out"
+  case "$(cat "$data_d/headroom.log.jsonl" 2>/dev/null)" in
+    *'"context_tokens":1000'*'"complete":false'*)
+      echo "  ok    gives up and logs the stale size flagged complete:false" ;;
+    *) echo "  FAIL  timed-out wait logged wrong: $(cat "$data_d/headroom.log.jsonl" 2>/dev/null)"; fail=1 ;;
+  esac
+
+  # Ordering guard: the previous turn ended on the same text as this one
+  # ("All done.\n"), and this turn's prompt and first call follow it. That
+  # earlier entry is not this turn's final entry.
+  rm -rf "$data_d"
+  mkdir -p "$data_d"
+  {
+    printf '%s\n' "$final_d"
+    cat "$fixture_d"
+  } >"$fixture_d.tmp" && mv "$fixture_d.tmp" "$fixture_d"
+  printf '%s' "$input" | HEADROOM_WAIT_TRIES=1 CLAUDE_PLUGIN_DATA="$data_d" "$hooks/context-size.sh" >/dev/null 2>&1
+  case "$(cat "$data_d/headroom.log.jsonl" 2>/dev/null)" in
+    *'"context_tokens":1000'*'"complete":false'*)
+      echo "  ok    a previous turn's identical text is not taken as the final entry" ;;
+    *) echo "  FAIL  ordering guard: $(cat "$data_d/headroom.log.jsonl" 2>/dev/null)"; fail=1 ;;
   esac
 
   # Missing transcript_path, unreadable file, and unparseable input all

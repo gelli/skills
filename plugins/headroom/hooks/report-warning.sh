@@ -5,7 +5,12 @@
 #    agent_transcript_path and log one line with model, turn count, and
 #    summed token usage, plus the size of last_assistant_message. This is
 #    measurement, not enforcement, so it never blocks and logs even Explore
-#    and other plugins' agents for comparison.
+#    and other plugins' agents for comparison. SubagentStop can fire before
+#    Claude Code has written the worker's final assistant entry to that
+#    transcript (seen missing a whole final API call, and logging a partial
+#    output_tokens snapshot), so the hook first waits, bounded, for it; see
+#    hr_final_entry_written below. The line carries complete true/false
+#    for whether that wait saw the final entry.
 # 2. The report-length block: talks to the WORKER, not the main session.
 #    When a headroom worker's own final report is long enough to defeat the
 #    point of delegating (only the report, not the worker's intermediate
@@ -37,6 +42,8 @@ root=${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 
 LINE_LIMIT=60
 BYTE_LIMIT=8000
+TAIL_LINES=200
+WAIT_BACKSTOP=5
 
 hr_read_input
 fields=$(hr_fields '
@@ -45,6 +52,7 @@ fields=$(hr_fields '
   (.agent_id // ""),
   (.agent_transcript_path // ""),
   (if .stop_hook_active then "true" else "false" end),
+  (.last_assistant_message // "" | tojson),
   (.last_assistant_message // "")
 ' '
 import json, sys
@@ -57,6 +65,7 @@ print(d.get("agent_type") or "")
 print(d.get("agent_id") or "")
 print(d.get("agent_transcript_path") or "")
 print("true" if d.get("stop_hook_active") else "false")
+print(json.dumps(d.get("last_assistant_message") or ""))
 print(d.get("last_assistant_message") or "")
 ')
 rc=$?
@@ -69,7 +78,12 @@ agent_type=$(printf '%s\n' "$fields" | sed -n 2p)
 agent_id=$(printf '%s\n' "$fields" | sed -n 3p)
 agent_transcript_path=$(printf '%s\n' "$fields" | sed -n 4p)
 stop_hook_active=$(printf '%s\n' "$fields" | sed -n 5p)
-message=$(printf '%s\n' "$fields" | sed -n '6,$p')
+# last_assistant_message twice: as a one-line JSON string for the
+# final-entry match (fed to the parser as the first line of its stdin, so
+# no shell step strips its trailing newlines and no argv/env size limit
+# applies), and raw for the report-size check.
+message_json=$(printf '%s\n' "$fields" | sed -n 6p)
+message=$(printf '%s\n' "$fields" | sed -n '7,$p')
 
 lines=$(printf '%s\n' "$message" | wc -l | tr -d '[:space:]')
 bytes=$(printf '%s' "$message" | wc -c | tr -d '[:space:]')
@@ -167,6 +181,95 @@ print(s("cache_creation_input_tokens"))
   printf '%s\n' "$hr_ts_out"
 }
 
+# hr_final_entry_written <path> <message-json> -- returns 0 once the tail
+# of <path> (last TAIL_LINES lines, cheap on any size of file) shows the
+# worker's final assistant entry: the last assistant entry that carries
+# text has text equal to last_assistant_message, and no user entry (a
+# prompt, a tool_result, or a block reason) follows it. "<synthetic>"
+# entries count here, since a worker can end on one. Non-zero otherwise,
+# including when no parser is available.
+hr_final_entry_written() {
+  hr_fe_path=$1
+  hr_fe_want=$2
+  if [ "${HEADROOM_PARSER:-auto}" != python3 ] && command -v jq >/dev/null 2>&1; then
+    hr_fe_out=$({ printf '%s\n' "$hr_fe_want"; tail -n "$TAIL_LINES" "$hr_fe_path" 2>/dev/null; } | jq -Rn -r '
+      (input | fromjson? // null) as $want
+      | (reduce (inputs | fromjson? // empty | objects) as $e (
+          {text: null, after: false};
+          if ($e.type // "") == "assistant" then
+            ([(($e.message // null) | if type == "object" then .content else null end)
+              | if type == "array" then .[] else empty end | objects
+              | select(.type == "text" and ((.text | type) == "string")) | .text]) as $t
+            | if ($t | length) > 0 then .text = ($t | join("")) | .after = false else . end
+          elif ($e.type // "") == "user" then .after = true
+          else . end
+        )) as $s
+      | if ($want | type) == "string" and $want != "" and $s.text == $want and ($s.after | not) then "match" else "wait" end
+    ' 2>/dev/null)
+  elif command -v python3 >/dev/null 2>&1; then
+    hr_fe_out=$({ printf '%s\n' "$hr_fe_want"; tail -n "$TAIL_LINES" "$hr_fe_path" 2>/dev/null; } | python3 -c '
+import json, sys
+try:
+    want = json.loads(sys.stdin.readline())
+except Exception:
+    want = None
+text = None
+after = False
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        e = json.loads(line)
+    except Exception:
+        continue
+    if not isinstance(e, dict):
+        continue
+    t = e.get("type")
+    if t == "user":
+        after = True
+    elif t == "assistant":
+        msg = e.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        texts = [b["text"] for b in (content if isinstance(content, list) else [])
+                 if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)]
+        if texts:
+            text = "".join(texts)
+            after = False
+print("match" if isinstance(want, str) and want != "" and text == want and not after else "wait")
+' 2>/dev/null)
+  else
+    return 1
+  fi
+  [ "$hr_fe_out" = match ]
+}
+
+# Wait for the final entry before reading usage: re-check the tail every
+# HEADROOM_WAIT_INTERVAL seconds (default 0.1), up to HEADROOM_WAIT_TRIES
+# extra times (default 30), never past WAIT_BACKSTOP seconds of wall
+# clock, well inside this hook's 15 s timeout with room left for the full
+# stream below. No wait when there is no transcript or no message to
+# match. On giving up, the counts are logged anyway with complete false.
+complete=false
+if [ -n "$agent_transcript_path" ] && [ -r "$agent_transcript_path" ] && [ "$message_json" != '""' ]; then
+  tries=${HEADROOM_WAIT_TRIES:-30}
+  case "$tries" in ''|*[!0-9]*) tries=30 ;; esac
+  interval=${HEADROOM_WAIT_INTERVAL:-0.1}
+  started=$(date +%s 2>/dev/null || echo 0)
+  n=0
+  while :; do
+    if hr_final_entry_written "$agent_transcript_path" "$message_json"; then
+      complete=true
+      break
+    fi
+    [ "$n" -lt "$tries" ] || break
+    now=$(date +%s 2>/dev/null || echo 0)
+    [ $((now - started)) -lt "$WAIT_BACKSTOP" ] || break
+    sleep "$interval" 2>/dev/null || sleep 1
+    n=$((n + 1))
+  done
+fi
+
 stats=$(hr_transcript_stats "$agent_transcript_path")
 transcript_status=$(printf '%s\n' "$stats" | sed -n 1p)
 model=$(printf '%s\n' "$stats" | sed -n 2p)
@@ -190,6 +293,7 @@ hr_log_fields usage report-warning \
   report_bytes "$bytes" \
   report_lines "$lines" \
   transcript "$transcript_status" \
+  complete "$complete" \
   stop_hook_active "$stop_hook_active"
 
 # The report-length block is headroom's own guardrail on its own roles
