@@ -10,11 +10,11 @@ Keeps the orchestrator's context small by delegating token-heavy work to workers
 | `headroom:implementer` | sonnet | high | full, minus Agent/Workflow; `maxTurns: 80` | opus, for escalation |
 | `headroom:reviewer` | sonnet | high | tools allowlist: Read, Grep, Glob, Bash, WebFetch, WebSearch (no MCP) | opus, for the final whole-branch review or a hard investigation |
 
-Scout and reviewer both carry Bash: a scout runs tests and builds, a reviewer runs the code under review. The ban on Edit, Write, and NotebookEdit is enforced, by `disallowedTools` for scout and by the `tools` allowlist for reviewer. Beyond that, "changes no project files" rests on each role's instructions, not on enforcement: scout also has Bash and MCP tools, used read-only by instruction. The one write either is allowed is its own report file, made with Bash and confined to the scratch directory named in its brief.
+Scout and reviewer both carry Bash: a scout runs tests and builds, a reviewer runs the code under review. The ban on Edit, Write, and NotebookEdit is enforced for scout by `disallowedTools`, and for reviewer twice over, by a `tools` allowlist with `disallowedTools` kept as a backstop. Beyond that, "changes no project files" rests on each role's instructions, not on enforcement: scout has Bash and MCP tools, reviewer has Bash, both used read-only by instruction. The one write either is allowed is its own report file, made with Bash and confined to the scratch directory named in its brief.
 
 A spawn may only raise a role's default model, never lower it, and never pass `fable`, `inherit`, `subagent_type: "fork"`, or `name`: `name` would turn a role into an agent-teams teammate rather than a worker, and a teammate may not keep `disallowedTools`. See `rules.md`, injected at session start, for the full rule set.
 
-Explore is not a headroom role: it passes the `Agent` check unchecked and inherits the main session's model, capped at Opus, which is why `rules.md` prefers `headroom:scout` for search and lookup work. To rule Explore out entirely rather than just discourage it, add `permissions.deny: ["Agent(Explore)"]` to your settings; that's Claude Code's own mechanism, not something headroom enforces.
+Explore is not a headroom role: it still goes through the check's fork, fable/mythos, and inherit denials, but the role/model-rank check doesn't apply to it, and it inherits the main session's model, capped at Opus, which is why `rules.md` prefers `headroom:scout` for search and lookup work. To rule Explore out entirely rather than just discourage it, add `permissions.deny: ["Agent(Explore)"]` to your settings; that's Claude Code's own mechanism, not something headroom enforces.
 
 ## What the hooks do
 
@@ -45,7 +45,7 @@ headroom is not a security boundary. Blocking applies only to the main session, 
 
 Every deny, block, override, allowed spawn, nudge (tool name and bytes), worker stop (model, turns, summed tokens, report size), report-length block when one fires (agent type, lines/bytes), and main-session turn (context size) is appended as one JSON line to `${CLAUDE_PLUGIN_DATA}/headroom.log.jsonl`. Under a normal plugin install that path sits under Claude Code's own plugin data directory; loaded with `--plugin-dir`, as under Try it below, it's `~/.claude/plugins/data/headroom-inline/headroom.log.jsonl`, shared by every headroom instance loaded that way.
 
-Run `sh plugins/headroom/scripts/usage.sh [--window 5h|7d|all] [log-path]` (default window 7d; the log path falls back to `$CLAUDE_PLUGIN_DATA`, then the newest `~/.claude/plugins/data/headroom*/headroom.log.jsonl`) for a summary: worker spawns and tokens by role and model, tokens per report byte, the main session's latest and peak context size, counts of nudges/blocks/denies/raised spawns, and any session that got a nudge but never spawned a worker.
+Run `sh plugins/headroom/scripts/usage.sh [--window 5h|7d|all] [log-path]` (default window 7d; the log path falls back to `$CLAUDE_PLUGIN_DATA`, then the newest `~/.claude/plugins/data/headroom*/headroom.log.jsonl`) for a summary: worker spawns and tokens grouped by agent_type and model, for every agent type the log has, not just headroom's own roles, so Explore and other plugins' agents show up too, tokens per report byte, the main session's latest and peak context size, counts of nudges/blocks/denies/raised spawns, and any session that got a nudge but never spawned a worker.
 
 ## Migrating from model-routing
 
