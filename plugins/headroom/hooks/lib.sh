@@ -79,11 +79,12 @@ hr_block() {
 # hr_log_rotate <path> -- best-effort: once <path> is at or over
 # HR_LOG_MAX_BYTES, renames it to <path>.1 (overwriting any previous one),
 # so the log never grows without bound. Called by hr_log and hr_log_fields
-# right before they append, so every write checks it. One rotation is kept;
-# a second rotation drops whatever was in .1. A concurrent writer (e.g. Stop
-# and a SubagentStop landing at the same instant) can still lose at most the
-# one line it was mid-append on, the same best-effort contract the rest of
-# this file has; it never fails the caller.
+# right before they append, so every write checks it. This is simple
+# rotation, not locked: two writers hitting the cap at the same instant
+# (e.g. Stop and a SubagentStop landing together) can both see the old size
+# and both mv, so the second mv can overwrite the first's freshly-rotated
+# (near-empty) .1 with its own, losing the archive rather than a single
+# line. Accepted for a best-effort log; never fails the caller.
 hr_log_rotate() {
   hr_lr_path=$1
   [ -f "$hr_lr_path" ] || return 0

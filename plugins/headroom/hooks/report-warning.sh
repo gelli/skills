@@ -84,10 +84,10 @@ bytes=$(printf '%s' "$message" | wc -c | tr -d '[:space:]')
 # last assistant model seen. Entries with message.model "<synthetic>" are
 # skipped entirely (not counted as a turn, not dedup-stored): Claude Code
 # writes that model with all-zero usage for entries like "No response
-# requested." or "API Error: Connection lost...", and counting one would
-# both undercount nothing (its usage is zero either way) but overcount
-# turns and could leave "<synthetic>" as the logged model for a worker
-# whose last entry is one of these. A missing/unreadable file, an
+# requested." or "API Error: Connection lost...". Its zero usage would not
+# change any sum, but counting it would still inflate turns by one and
+# could leave "<synthetic>" as the logged model for a worker whose last
+# entry is one of these. A missing/unreadable file, an
 # unparseable one, or an unrecognised line never aborts the hook: they fall
 # back to "missing" or "unparsed" with all-zero counts.
 hr_transcript_stats() {
