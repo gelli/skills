@@ -13,6 +13,56 @@ check() { # label expected actual
   if [ "$2" = "$3" ]; then echo "  ok    $1"; else echo "  FAIL  $1: expected '$2', got '$3'"; fail=1; fi
 }
 
+# assert_parser <label> -- guard against a real regression: a prefix
+# assignment on a shell *function* call (e.g. `HEADROOM_PARSER=python3
+# run_x_matrix ...`) has shell-dependent persistence after the call
+# returns. POSIX leaves this unspecified, and on this machine's /bin/sh
+# (bash 3.2 running in POSIX mode) the assignment leaks into every command
+# for the rest of the script, so a later "via jq" run would silently run
+# on python3 (proven empirically; dash and non-POSIX bash do not leak
+# this). Every run_*_matrix below calls this as its first statement so
+# the check happens inside the run, not just around the call site, and
+# would catch that regression even if a future edit reintroduced the
+# leaky prefix-assignment pattern at a call site.
+assert_parser() {
+  case "$1" in
+    *' via jq')
+      if [ "${HEADROOM_PARSER:-}" = python3 ]; then
+        echo "  FAIL  $1: HEADROOM_PARSER is python3, not jq (leaked?)"; fail=1
+      elif ! command -v jq >/dev/null 2>&1; then
+        echo "  FAIL  $1: jq is not even installed"; fail=1
+      fi
+      ;;
+    *' via python3')
+      if [ "${HEADROOM_PARSER:-}" != python3 ]; then
+        echo "  FAIL  $1: HEADROOM_PARSER is '${HEADROOM_PARSER:-<unset>}', not python3"; fail=1
+      fi
+      ;;
+  esac
+}
+
+# run_parser_matrix <matrix-func> <label-prefix> -- runs <matrix-func> once
+# per available parser, with HEADROOM_PARSER set/unset as its own statement
+# (never as a prefix assignment on the function call itself; see
+# assert_parser above for why that matters).
+run_parser_matrix() {
+  matrix_func=$1
+  label_prefix=$2
+  if command -v jq >/dev/null 2>&1; then
+    unset HEADROOM_PARSER
+    "$matrix_func" "$label_prefix via jq"
+  else
+    echo "jq not installed; skipping $label_prefix jq path"
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    export HEADROOM_PARSER=python3
+    "$matrix_func" "$label_prefix via python3"
+    unset HEADROOM_PARSER
+  else
+    echo "python3 not installed; skipping $label_prefix python3 path"
+  fi
+}
+
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -22,6 +72,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 run_hr_log_fields_matrix() { # label
   echo "$1"
+  assert_parser "$1"
   data="$tmp/lib-data"
   rm -rf "$data"
   mkdir -p "$data"
@@ -83,16 +134,7 @@ run_hr_log_fields_matrix() { # label
   echo "  ok    silently does nothing without CLAUDE_PLUGIN_DATA (no crash)"
 }
 
-if command -v jq >/dev/null 2>&1; then
-  run_hr_log_fields_matrix "hr_log_fields via jq"
-else
-  echo "jq not installed; skipping hr_log_fields jq path"
-fi
-if command -v python3 >/dev/null 2>&1; then
-  HEADROOM_PARSER=python3 run_hr_log_fields_matrix "hr_log_fields via python3"
-else
-  echo "python3 not installed; skipping hr_log_fields python3 path"
-fi
+run_parser_matrix run_hr_log_fields_matrix "hr_log_fields"
 
 # ======================================================================
 # check-agent.sh
@@ -109,6 +151,7 @@ agent_decision() { # json
 
 run_agent_matrix() { # label
   echo "$1"
+  assert_parser "$1"
   check "fork denied"                    deny  "$(agent_decision '{"tool_input":{"subagent_type":"fork","model":"sonnet"}}')"
   check "fable denied"                   deny  "$(agent_decision '{"tool_input":{"subagent_type":"headroom:scout","model":"fable"}}')"
   check "mythos denied (full id)"        deny  "$(agent_decision '{"tool_input":{"subagent_type":"headroom:reviewer","model":"claude-mythos-1"}}')"
@@ -138,22 +181,14 @@ run_agent_matrix() { # label
   check "empty input allowed"            allow "$(agent_decision '')"
 }
 
-if command -v jq >/dev/null 2>&1; then
-  run_agent_matrix "check-agent via jq"
-else
-  echo "jq not installed; skipping check-agent jq path"
-fi
-if command -v python3 >/dev/null 2>&1; then
-  HEADROOM_PARSER=python3 run_agent_matrix "check-agent via python3"
-else
-  echo "python3 not installed; skipping check-agent python3 path"
-fi
+run_parser_matrix run_agent_matrix "check-agent"
 
 # check-agent.sh: allowed spawns are logged (2.2). Denies were already
 # covered by the log-based tests above via hr_log; this checks the new
 # hr_log_fields line for an allow.
 run_agent_log_matrix() { # label
   echo "$1"
+  assert_parser "$1"
   data="$tmp/agent-log-data"
   rm -rf "$data"
   mkdir -p "$data"
@@ -197,16 +232,7 @@ print("yes" if d.get("raised") is True and d.get("model") == "sonnet" else "no")
   fi
 }
 
-if command -v jq >/dev/null 2>&1; then
-  run_agent_log_matrix "check-agent allow logging via jq"
-else
-  echo "jq not installed; skipping check-agent allow logging jq path"
-fi
-if command -v python3 >/dev/null 2>&1; then
-  HEADROOM_PARSER=python3 run_agent_log_matrix "check-agent allow logging via python3"
-else
-  echo "python3 not installed; skipping check-agent allow logging python3 path"
-fi
+run_parser_matrix run_agent_log_matrix "check-agent allow logging"
 
 # ======================================================================
 # check-workflow.sh
@@ -223,6 +249,7 @@ workflow_decision() { # json
 
 run_workflow_matrix() { # label
   echo "$1"
+  assert_parser "$1"
   check "fable in inline script"    deny  "$(workflow_decision '{"tool_input":{"script":"Agent({ model: \"fable\" })"}}')"
   check "mythos in inline script"   deny  "$(workflow_decision '{"tool_input":{"script":"Agent({ model: \"MYTHOS\" })"}}')"
   check "clean inline script"       allow "$(workflow_decision '{"tool_input":{"script":"Agent({ model: \"sonnet\" })"}}')"
@@ -268,16 +295,7 @@ line six'
   check "fable split across two lines, scriptPath" deny "$(workflow_decision "$payload")"
 }
 
-if command -v jq >/dev/null 2>&1; then
-  run_workflow_matrix "check-workflow via jq"
-else
-  echo "jq not installed; skipping check-workflow jq path"
-fi
-if command -v python3 >/dev/null 2>&1; then
-  HEADROOM_PARSER=python3 run_workflow_matrix "check-workflow via python3"
-else
-  echo "python3 not installed; skipping check-workflow python3 path"
-fi
+run_parser_matrix run_workflow_matrix "check-workflow"
 
 # ======================================================================
 # block.sh
@@ -310,6 +328,7 @@ delegate_wording() { # deny output
 
 run_block_matrix() { # label
   echo "$1"
+  assert_parser "$1"
   unset CLAUDE_PLUGIN_OPTION_HARD_BLOCKS CLAUDE_PLUGIN_OPTION_BLOCK_PATTERNS HEADROOM_BLOCKS
 
   check "disabled by default"          allow "$(block_decision '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"npm test"}}')"
@@ -426,16 +445,7 @@ export CLAUDE_PLUGIN_DATA="$tmp/data"
 export CLAUDE_PROJECT_DIR="$tmp/proj"
 mkdir -p "$CLAUDE_PLUGIN_DATA" "$CLAUDE_PROJECT_DIR"
 
-if command -v jq >/dev/null 2>&1; then
-  run_block_matrix "block via jq"
-else
-  echo "jq not installed; skipping block jq path"
-fi
-if command -v python3 >/dev/null 2>&1; then
-  HEADROOM_PARSER=python3 run_block_matrix "block via python3"
-else
-  echo "python3 not installed; skipping block python3 path"
-fi
+run_parser_matrix run_block_matrix "block"
 
 # ======================================================================
 # inline.sh
@@ -443,6 +453,7 @@ fi
 
 run_inline_matrix() { # label
   echo "$1"
+  assert_parser "$1"
   data="$tmp/inline-data"
   rm -rf "$data"
   mkdir -p "$data"
@@ -466,16 +477,7 @@ run_inline_matrix() { # label
   check "other prompt is a no-op" session "$(cat "$data/inline/sess1" 2>/dev/null)"
 }
 
-if command -v jq >/dev/null 2>&1; then
-  run_inline_matrix "inline via jq"
-else
-  echo "jq not installed; skipping inline jq path"
-fi
-if command -v python3 >/dev/null 2>&1; then
-  HEADROOM_PARSER=python3 run_inline_matrix "inline via python3"
-else
-  echo "python3 not installed; skipping inline python3 path"
-fi
+run_parser_matrix run_inline_matrix "inline"
 
 # ======================================================================
 # nudge.sh
@@ -483,6 +485,7 @@ fi
 
 run_nudge_matrix() { # label
   echo "$1"
+  assert_parser "$1"
   big=$(awk 'BEGIN{s=""; for(i=0;i<40000;i++) s=s "x"; print s}')
   out=$(printf '{"tool_name":"Bash","tool_response":{"stdout":"%s"}}' "$big" | "$hooks/nudge.sh" 2>/dev/null)
   case "$out" in
@@ -578,16 +581,7 @@ run_nudge_matrix() { # label
   fi
 }
 
-if command -v jq >/dev/null 2>&1; then
-  run_nudge_matrix "nudge via jq"
-else
-  echo "jq not installed; skipping nudge jq path"
-fi
-if command -v python3 >/dev/null 2>&1; then
-  HEADROOM_PARSER=python3 run_nudge_matrix "nudge via python3"
-else
-  echo "python3 not installed; skipping nudge python3 path"
-fi
+run_parser_matrix run_nudge_matrix "nudge"
 
 # ======================================================================
 # report-warning.sh
@@ -595,6 +589,7 @@ fi
 
 run_report_matrix() { # label
   echo "$1"
+  assert_parser "$1"
   long_msg=$(awk 'BEGIN{for(i=0;i<70;i++) print "line " i}')
   esc_long=$(printf '%s' "$long_msg" | awk '{printf "%s\\n", $0}')
 
@@ -695,16 +690,7 @@ JSONL
   check "usage logged exactly once even when the block fires" "1" "$count"
 }
 
-if command -v jq >/dev/null 2>&1; then
-  run_report_matrix "report-warning via jq"
-else
-  echo "jq not installed; skipping report-warning jq path"
-fi
-if command -v python3 >/dev/null 2>&1; then
-  HEADROOM_PARSER=python3 run_report_matrix "report-warning via python3"
-else
-  echo "python3 not installed; skipping report-warning python3 path"
-fi
+run_parser_matrix run_report_matrix "report-warning"
 
 # ======================================================================
 # context-size.sh
@@ -712,6 +698,7 @@ fi
 
 run_context_size_matrix() { # label
   echo "$1"
+  assert_parser "$1"
   data="$tmp/context-size-data"
   rm -rf "$data"
   mkdir -p "$data"
@@ -777,16 +764,7 @@ JSONL
     "$(printf 'not json' | CLAUDE_PLUGIN_DATA="$data" "$hooks/context-size.sh" 2>/dev/null)"
 }
 
-if command -v jq >/dev/null 2>&1; then
-  run_context_size_matrix "context-size via jq"
-else
-  echo "jq not installed; skipping context-size jq path"
-fi
-if command -v python3 >/dev/null 2>&1; then
-  HEADROOM_PARSER=python3 run_context_size_matrix "context-size via python3"
-else
-  echo "python3 not installed; skipping context-size python3 path"
-fi
+run_parser_matrix run_context_size_matrix "context-size"
 
 # ======================================================================
 # inject-rules.sh
@@ -827,6 +805,7 @@ fi
 
 run_usage_matrix() { # label
   echo "$1"
+  assert_parser "$1"
   now=$(date +%s)
   past_100=$((now - 100))
   past_50=$((now - 50))
@@ -976,15 +955,6 @@ EOF
   esac
 }
 
-if command -v jq >/dev/null 2>&1; then
-  run_usage_matrix "usage.sh via jq"
-else
-  echo "jq not installed; skipping usage.sh jq path"
-fi
-if command -v python3 >/dev/null 2>&1; then
-  HEADROOM_PARSER=python3 run_usage_matrix "usage.sh via python3"
-else
-  echo "python3 not installed; skipping usage.sh python3 path"
-fi
+run_parser_matrix run_usage_matrix "usage.sh"
 
 [ $fail -eq 0 ] && echo "all hook tests passed" || { echo "hook tests FAILED"; exit 1; }
