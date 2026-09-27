@@ -24,7 +24,9 @@
 #                           cache_creation_input_tokens, report_bytes.
 #   nudge/nudge         -- a large main-session tool result: session_id,
 #                           tool_name, bytes.
-#   block/block         -- a hard_blocks refusal (no session_id).
+#   block/block         -- a hard_blocks refusal: session_id, tool_name,
+#                           bytes (the triggering command's byte count, 0 for
+#                           a blocked Grep), detail.
 #   context/context-size -- one line per main-session turn: session_id,
 #                           model, context_tokens.
 #

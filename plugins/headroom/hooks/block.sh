@@ -72,6 +72,10 @@ path=$(printf '%s\n' "$fields" | sed -n 5p)
 glob=$(printf '%s\n' "$fields" | sed -n 6p)
 # command can be multi-line, so it is always the last field extracted.
 command=$(printf '%s\n' "$fields" | sed -n '7,$p')
+# Byte size of the command text that triggered (or would trigger) a block:
+# there is no tool output yet to measure at PreToolUse, so this is the
+# closest stand-in (plan 2.4). 0 for Grep, which has no command field.
+command_bytes=$(printf '%s' "$command" | wc -c | tr -d '[:space:]')
 
 # Workers are never blocked.
 [ -z "$agent_id" ] || exit 0
@@ -251,7 +255,7 @@ if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -n "$session_id" ]; then
 fi
 
 if [ -n "$matched_seg" ]; then
-  hr_log block block "$tool_name: $matched_seg"
+  hr_log_fields block block tool_name "$tool_name" bytes "$command_bytes" detail "$matched_seg"
   if [ "$matched_source" = user ]; then
     hr_deny "headroom: \"$matched_seg\" matched a user block_patterns entry; hard_blocks is on for the main session. Ask the user to run /headroom:inline (this call only) or /headroom:inline session to lift it."
   else
@@ -260,6 +264,6 @@ if [ -n "$matched_seg" ]; then
   exit 0
 fi
 
-hr_log block block "$tool_name: repo-wide search"
+hr_log_fields block block tool_name "$tool_name" bytes "$command_bytes" detail "repo-wide search"
 hr_deny "headroom: a repo-wide $tool_name is delegable work; hard_blocks is on for the main session. Delegate to headroom:scout, or ask the user to run /headroom:inline (this call only) or /headroom:inline session."
 exit 0

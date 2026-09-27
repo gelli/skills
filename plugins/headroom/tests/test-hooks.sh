@@ -439,6 +439,26 @@ EOF
 
   check "unparseable input allowed"     allow "$(block_decision 'not json')"
 
+  # A block log line carries session_id and a byte size (plan 2.4), not just
+  # a detail string. tail -n 1: the log accumulates across every check
+  # above and every parser-matrix pass, so only the most recent line is
+  # this call's.
+  block_decision '{"session_id":"s-log","tool_name":"Bash","tool_input":{"command":"npm test"}}' >/dev/null
+  block_log_line=$(tail -n 1 "$CLAUDE_PLUGIN_DATA/headroom.log.jsonl" 2>/dev/null)
+  case "$block_log_line" in
+    *'"event":"block"'*'"session_id":"s-log"'*'"tool_name":"Bash"'*'"bytes":8'*)
+      echo "  ok    block log line carries session_id, tool_name, and byte size" ;;
+    *) echo "  FAIL  block log line missing session_id/tool_name/bytes: $block_log_line"; fail=1 ;;
+  esac
+
+  block_decision '{"session_id":"s-log2","tool_name":"Grep","tool_input":{"pattern":"TODO"}}' >/dev/null
+  grep_log_line=$(tail -n 1 "$CLAUDE_PLUGIN_DATA/headroom.log.jsonl" 2>/dev/null)
+  case "$grep_log_line" in
+    *'"event":"block"'*'"session_id":"s-log2"'*'"tool_name":"Grep"'*'"bytes":0'*)
+      echo "  ok    Grep block log line has byte size 0 (no command field)" ;;
+    *) echo "  FAIL  Grep block log line wrong: $grep_log_line"; fail=1 ;;
+  esac
+
   unset CLAUDE_PLUGIN_OPTION_HARD_BLOCKS CLAUDE_PLUGIN_OPTION_BLOCK_PATTERNS HEADROOM_BLOCKS
 }
 
@@ -825,7 +845,7 @@ run_usage_matrix() { # label
 {"ts":$now,"event":"usage","hook":"report-warning","session_id":"s5","agent_type":"Explore","agent_id":"a4","model":"","turns":0,"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"report_bytes":250,"report_lines":5,"transcript":"missing","stop_hook_active":false}
 {"ts":$now,"event":"nudge","hook":"nudge","session_id":"s1","tool_name":"Bash","bytes":40000}
 {"ts":$now,"event":"nudge","hook":"nudge","session_id":"s3","tool_name":"Read","bytes":50000}
-{"ts":$now,"event":"block","hook":"block","detail":"Bash: npm test"}
+{"ts":$now,"event":"block","hook":"block","session_id":"s1","tool_name":"Bash","bytes":8,"detail":"npm test"}
 {"ts":$past_100,"event":"context","hook":"context-size","session_id":"s1","model":"claude-sonnet-5","context_tokens":2000}
 {"ts":$past_50,"event":"context","hook":"context-size","session_id":"s1","model":"claude-sonnet-5","context_tokens":1000}
 {"ts":$now,"event":"context","hook":"context-size","session_id":"s1","model":"claude-sonnet-5","context_tokens":1500}
