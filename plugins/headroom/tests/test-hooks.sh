@@ -731,8 +731,8 @@ JSONL
   check "usage log fixture: silent (short report, under limits)" "" "$out"
   log=$(cat "$data/headroom.log.jsonl" 2>/dev/null)
   case "$log" in
-    *'"event":"usage"'*'"agent_type":"headroom:scout"'*'"agent_id":"agent-xyz"'*'"model":"claude-sonnet-5"'*'"turns":2'*'"input_tokens":17'*'"output_tokens":23'*'"cache_read_input_tokens":150'*'"cache_creation_input_tokens":9'*'"transcript":"ok"'*'"complete":true'*)
-      echo "  ok    usage log line has deduped, summed transcript stats" ;;
+    *'"event":"usage"'*'"agent_type":"headroom:scout"'*'"agent_id":"agent-xyz"'*'"model":"claude-sonnet-5"'*'"turns":2'*'"input_tokens":17'*'"output_tokens":23'*'"cache_read_input_tokens":150'*'"cache_creation_input_tokens":9'*'"report_bytes":12'*'"report_lines":1'*'"transcript":"ok"'*'"complete":true'*)
+      echo "  ok    usage log line has deduped, summed transcript stats and the report's size" ;;
     *) echo "  FAIL  usage log line missing or wrong: $log"; fail=1 ;;
   esac
   if command -v python3 >/dev/null 2>&1; then
