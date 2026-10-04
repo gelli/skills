@@ -65,10 +65,11 @@ name=$(printf '%s\n' "$fields" | sed -n 4p)
 isolation=$(printf '%s\n' "$fields" | sed -n 5p)
 run_in_background=$(printf '%s\n' "$fields" | sed -n 6p)
 model_lc=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]')
-role=${subagent_type#headroom:}
 # Claude Code resolves subagent_type ignoring case, whitespace, "-" and "_",
 # so match on the normalised value; messages keep the original spelling.
-role=$(printf '%s' "$role" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]_-')
+# Lowercase before stripping the prefix so "HEADROOM:scout" is still a role.
+role=$(printf '%s' "$subagent_type" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+role=$(printf '%s' "${role#headroom:}" | tr -d '_-')
 if [ -n "$name" ]; then named=true; else named=false; fi
 
 deny_and_log() { # reason
@@ -94,7 +95,7 @@ allow_and_log() {
 }
 
 # 1. A fork always inherits the parent model.
-if [ "$subagent_type" = fork ]; then
+if [ "$role" = fork ]; then
   deny_and_log "headroom: subagent_type \"fork\" is not allowed. A fork always inherits the orchestrator model and ignores the model parameter. Spawn headroom:scout, headroom:implementer, or headroom:reviewer with a written brief instead."
 fi
 
