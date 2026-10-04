@@ -1,7 +1,7 @@
 {
   "name": "headroom",
   "version": "0.3.0",
-  "description": "Keeps the main session's context small by delegating token-heavy work to three worker roles (scout, implementer, reviewer), with a spawn check, nudges, and optional blocks.",
+  "description": "Keeps the main session's context small by delegating token-heavy work to three worker roles (scout, implementer, reviewer), with a spawn check, nudges, a refusal of whole reads of large files, and optional blocks.",
   "author": {
     "name": "Chris Heizmann"
   },

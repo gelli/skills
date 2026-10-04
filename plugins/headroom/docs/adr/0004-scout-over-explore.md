@@ -1,5 +1,7 @@
 # headroom:scout, not Explore, for search and lookup work
 
+> Status: the model-less `Explore`/`Plan` denial listed below as a considered option was adopted in 0.3.0 (see docs/plans/2026-10-04-headroom-0.3.md), superseding its rejection here. The reasoning below is the original 0.2 record.
+
 rules.md tells the orchestrator to prefer `headroom:scout` over the built-in `Explore` subagent for search, lookup and doc work. Explore inherits the main session's model, capped at Opus, so on an Opus orchestrator every Explore spawn runs on Opus regardless of the job's size. Scout defaults to haiku, keeps Bash for test and build runs, and follows the same 40-line report-file rule as headroom's other roles. check-agent.sh still runs an `Explore` or `Plan` spawn through the fork, fable/mythos and inherit denials that apply to every subagent_type; only the role/model-rank check that ranks scout, implementer and reviewer's models does not apply to them.
 
 ## Considered Options

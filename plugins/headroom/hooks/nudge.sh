@@ -95,4 +95,4 @@ size=$(printf '%s' "$measured" | wc -c | tr -d '[:space:]')
 kt=$((size / 4096))
 [ "$kt" -gt 0 ] || kt=1
 hr_log_fields nudge nudge tool_name "$tool_name" bytes "$size"
-hr_add_context PostToolUse "headroom: that $tool_name output was about ${kt}k tokens in the main context. Next time send this kind of work to headroom:scout."
+hr_add_context PostToolUse "headroom: that $tool_name output was about ${kt}k tokens in the main context. headroom:scout runs this kind of work in its own context and returns only a short report."
