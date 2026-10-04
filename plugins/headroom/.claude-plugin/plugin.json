@@ -1,6 +1,6 @@
 {
   "name": "headroom",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Keeps the main session's context small by delegating token-heavy work to three worker roles (scout, implementer, reviewer), with a spawn check, nudges, and optional blocks.",
   "author": {
     "name": "Chris Heizmann"
@@ -26,6 +26,12 @@
       "title": "Extra block patterns",
       "description": "Extra extended regex (ERE) matched against Bash commands, added to the built-in list.",
       "default": ""
+    },
+    "read_max_bytes": {
+      "type": "number",
+      "title": "Largest file the main session may Read whole",
+      "description": "Refuse a Read of a file at or over this many bytes (unless it sets limit to 400 or fewer lines, or is an image or pdf); on by default. 0 turns the check off.",
+      "default": 32768
     }
   }
 }

@@ -23,7 +23,7 @@
       "name": "headroom",
       "source": "./plugins/headroom",
       "description": "Keeps the main session's context small by delegating token-heavy work to three worker roles, with a spawn check, nudges and optional blocks",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "keywords": [
         "delegation",
         "subagents",

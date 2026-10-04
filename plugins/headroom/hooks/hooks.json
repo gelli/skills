@@ -1,5 +1,5 @@
 {
-  "description": "headroom: injects the delegation rules every session, checks Agent and Workflow spawns, optionally blocks delegable work in the main session, nudges after a large tool output, tells a worker whose own report is too long to shorten it before stopping, and logs the main session's context size once per turn.",
+  "description": "headroom: injects the delegation rules every session, checks Agent and Workflow spawns, refuses a whole read of a large file in the main session, optionally blocks delegable work there, nudges after a large tool output, tells a worker whose own report is too long to shorten it before stopping, and logs the main session's context size once per turn.",
   "hooks": {
     "SessionStart": [
       {
@@ -41,6 +41,16 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/check-workflow.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/read-guard.sh\"",
             "timeout": 5
           }
         ]

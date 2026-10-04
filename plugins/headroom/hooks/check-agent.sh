@@ -4,10 +4,9 @@
 # never lower, never fable/mythos, never "inherit", and never via
 # subagent_type "fork". A role also may not be spawned with "name" set: that
 # would make it an agent-teams teammate rather than a worker. Explore
-# inherits the main session's model, capped at Opus, not its own; it and
-# Plan pass through unchecked for now (denying a model-less Explore/Plan
-# spawn is deferred until there is usage data). subagent_type empty,
-# "general-purpose", or "claude" need an explicit model. Any other named
+# inherits the main session's model, capped at Opus, not its own. Explore,
+# Plan, subagent_type empty, "general-purpose", and "claude" all need an
+# explicit model. Any other named
 # agent type is left to its own definition.
 #
 # Rank: haiku=1, sonnet=2, opus=3, classified by case-insensitive substring so
@@ -148,8 +147,10 @@ case "$role" in
     ;;
   Explore|Plan)
     # Explore actually runs on the main session's model (capped at Opus), not
-    # its own. Denying a model-less spawn here is deferred to plan item 4.7,
-    # once logs show how often Explore runs on Opus in practice.
+    # its own, so a model-less spawn is denied (plan item 4.7).
+    if [ -z "$model" ]; then
+      deny_and_log "headroom: subagent_type \"$subagent_type\" without a model would run on the orchestrator model. Re-issue the call with an explicit model (haiku, sonnet, or opus), or prefer headroom:scout for search and lookup work."
+    fi
     allow_and_log "" "$model" false
     ;;
   ""|general-purpose|claude)

@@ -229,8 +229,11 @@ run_agent_matrix() { # label
   check "scout full id haiku"            allow "$(agent_decision '{"tool_input":{"subagent_type":"scout","model":"us.anthropic.claude-haiku-4-5-v1:0"}}')"
   check "opus 1m tag"                    allow "$(agent_decision '{"tool_input":{"subagent_type":"reviewer","model":"opus[1m]"}}')"
   check "unknown model string allowed"   allow "$(agent_decision '{"tool_input":{"subagent_type":"headroom:scout","model":"gpt-4"}}')"
-  check "Explore allowed"                allow "$(agent_decision '{"tool_input":{"subagent_type":"Explore"}}')"
-  check "Plan allowed"                   allow "$(agent_decision '{"tool_input":{"subagent_type":"Plan"}}')"
+  check "Explore no model denied"        deny  "$(agent_decision '{"tool_input":{"subagent_type":"Explore"}}')"
+  check "Plan no model denied"           deny  "$(agent_decision '{"tool_input":{"subagent_type":"Plan"}}')"
+  check "Explore with model allowed"     allow "$(agent_decision '{"tool_input":{"subagent_type":"Explore","model":"haiku"}}')"
+  check "Plan with model allowed"        allow "$(agent_decision '{"tool_input":{"subagent_type":"Plan","model":"sonnet"}}')"
+  check "Explore inherit still denied"   deny  "$(agent_decision '{"tool_input":{"subagent_type":"Explore","model":"inherit"}}')"
   check "general-purpose no model denied" deny "$(agent_decision '{"tool_input":{"subagent_type":"general-purpose"}}')"
   check "general-purpose with model allowed" allow "$(agent_decision '{"tool_input":{"subagent_type":"general-purpose","model":"sonnet"}}')"
   check "general-purpose with name and model unaffected" allow "$(agent_decision '{"tool_input":{"subagent_type":"general-purpose","model":"sonnet","name":"casey"}}')"
@@ -242,6 +245,89 @@ run_agent_matrix() { # label
 }
 
 run_parser_matrix run_agent_matrix "check-agent"
+
+# ======================================================================
+# read-guard.sh
+# ======================================================================
+
+run_read_guard_matrix() { # label
+  echo "$1"
+  assert_parser "$1"
+  rg_dir="$tmp/read-guard"
+  rm -rf "$rg_dir"
+  mkdir -p "$rg_dir"
+  big="$rg_dir/big.txt"
+  small="$rg_dir/small.txt"
+  img="$rg_dir/shot.PNG"
+  head -c 40000 /dev/zero | tr '\0' 'x' >"$big"
+  printf 'tiny\n' >"$small"
+  head -c 40000 /dev/zero >"$img"
+  rg_data="$rg_dir/data"
+  # rg_json <session> <agent|-> <path> <offset|-> <limit|-> -- builds the
+  # hook input with printf; "-" omits a field.
+  rg_json() {
+    rg_j="{\"session_id\":\"$1\""
+    [ "$2" = - ] || rg_j="$rg_j,\"agent_id\":\"$2\""
+    rg_j="$rg_j,\"tool_input\":{\"file_path\":\"$3\""
+    [ "$4" = - ] || rg_j="$rg_j,\"offset\":$4"
+    [ "$5" = - ] || rg_j="$rg_j,\"limit\":$5"
+    printf '%s}}' "$rg_j"
+  }
+  rg_call() { rg_decision "$(rg_json "$1" "$2" "$3" "$4" "$5")" "${6:-}"; }
+  rg_decision() { # json [knob]
+    out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$rg_data" CLAUDE_PLUGIN_OPTION_READ_MAX_BYTES="${2:-}" "$hooks/read-guard.sh" 2>/dev/null)
+    case "$out" in
+      "") printf allow ;;
+      *'"permissionDecision":"deny"'*) printf deny ;;
+      *) printf other ;;
+    esac
+  }
+  check "big file on the main thread denied"   deny  "$(rg_call rg1 - $big - -)"
+  check "subagent Read of a big file allowed"  allow "$(rg_call rg1 a1 $big - -)"
+  check "small file allowed"                   allow "$(rg_call rg1 - $small - -)"
+  check "limit 400 on a big file allowed"      allow "$(rg_call rg1 - $big - 400)"
+  check "limit 50 with offset allowed"         allow "$(rg_call rg1 - $big 10 50)"
+  check "limit 401 on a big file denied"       deny  "$(rg_call rg1 - $big - 401)"
+  check "offset alone on a big file denied"    deny  "$(rg_call rg1 - $big 10 -)"
+  check "image (uppercase ext) allowed"        allow "$(rg_call rg1 - $img - -)"
+  check "pdf allowed"                          allow "$(rg_call rg1 - $rg_dir/doc.pdf - -)"
+  check "read_max_bytes 0 turns it off"        allow "$(rg_call rg1 - $big - - 0)"
+  check "read_max_bytes raised above the file" allow "$(rg_call rg1 - $big - - 50000)"
+  check "read_max_bytes lowered denies small"  deny  "$(rg_call rg1 - $small - - 3)"
+  check "missing file allowed"                 allow "$(rg_call rg1 - $rg_dir/nope.txt - -)"
+  check "directory allowed"                    allow "$(rg_call rg1 - $rg_dir - -)"
+  check "no file_path allowed"                 allow "$(rg_decision '{"session_id":"rg1","tool_input":{}}')"
+  check "unparseable input allowed"            allow "$(rg_decision 'not json')"
+  check "HEADROOM_BLOCKS=0 lifts the deny"     "" "$(rg_json rg1 - "$big" - - | HEADROOM_BLOCKS=0 "$hooks/read-guard.sh" 2>/dev/null)"
+
+  # The deny reason states the size in KB and the three ways out.
+  out=$(rg_json rg1 - "$big" - - | CLAUDE_PLUGIN_DATA="$rg_data" "$hooks/read-guard.sh" 2>/dev/null)
+  case "$out" in
+    *'39 KB'*'headroom:scout'*'offset'*'/headroom:inline'*) echo "  ok    deny reason names size, scout, offset/limit and /headroom:inline" ;;
+    *) echo "  FAIL  deny reason incomplete: $out"; fail=1 ;;
+  esac
+  case "$(cat "$rg_data/headroom.log.jsonl" 2>/dev/null)" in
+    *'"event":"block"'*'"hook":"read-guard"'*'"bytes":40000'*) echo "  ok    deny is logged" ;;
+    *) echo "  FAIL  deny not logged: $(cat "$rg_data/headroom.log.jsonl" 2>/dev/null)"; fail=1 ;;
+  esac
+
+  # Inline lift: "once" is consumed by the deny it lifts, "session" persists,
+  # and a benign Read never consumes a one-time override.
+  rm -rf "$rg_data/inline"
+  mkdir -p "$rg_data/inline"
+  printf once >"$rg_data/inline/rg-once"
+  check "once lift: benign Read allowed"       allow "$(rg_call rg-once - $small - -)"
+  check "once lift: not consumed by benign Read" once "$(cat "$rg_data/inline/rg-once" 2>/dev/null)"
+  check "once lift: big Read allowed"          allow "$(rg_call rg-once - $big - -)"
+  check "once lift: consumed"                  ""    "$(cat "$rg_data/inline/rg-once" 2>/dev/null)"
+  check "once lift: next big Read denied"      deny  "$(rg_call rg-once - $big - -)"
+  printf session >"$rg_data/inline/rg-sess"
+  check "session lift: big Read allowed"       allow "$(rg_call rg-sess - $big - -)"
+  check "session lift: still allowed"          allow "$(rg_call rg-sess - $big - -)"
+  check "other session still denied"           deny  "$(rg_call rg-other - $big - -)"
+}
+
+run_parser_matrix run_read_guard_matrix "read-guard"
 
 # check-agent.sh: allowed spawns are logged (2.2). Denies were already
 # covered by the log-based tests above via hr_log; this checks the new

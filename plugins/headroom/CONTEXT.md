@@ -63,7 +63,7 @@ _Avoid_: retry, upgrade
 ### Enforcement
 
 **Block**:
-A refusal of a delegable tool call made by the orchestrator; workers are never blocked.
+A refusal of a delegable tool call made by the orchestrator, including a whole-file Read of a large file (on by default); workers are never blocked.
 _Avoid_: deny, guard
 
 **Nudge**:
@@ -71,7 +71,7 @@ A reminder injected into the main context after the orchestrator took in a large
 _Avoid_: warning, hint
 
 **Inline override**:
-A user-granted, session-scoped lift of blocks.
+A user-granted, one-call or session-scoped lift of blocks, including the large-file Read refusal.
 _Avoid_: bypass, escape hatch
 
 **Advisor**:

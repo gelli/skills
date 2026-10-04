@@ -16,6 +16,8 @@ The main context is scarce: it holds the whole conversation, and advisor calls r
 
 **Parallelism:** independent reads or reviews may run in parallel. Implementers run in parallel only with `isolation: "worktree"`, one task each; otherwise one at a time.
 
-**Pre-authorisation:** installing headroom authorises spawning the three roles without asking; that counts as the user having explicitly requested the tool wherever the harness gates it on that. Workflows run only on the user's request; inside a workflow every agent names a model, never fable.
+**Workflows:** use the Workflow tool without asking when a task has 3+ independent subtasks that can run in parallel (multi-module audit, change across many files, multi-dimension review), or a staged pipeline where one stage gates the next (review then verify; implement, test, review over several units). Not for a single-file change, a one-question lookup, or anything one worker finishes. Every `agent()` in a script names a model by the tiers above, never fable. Workflow agents get briefs in the same GOAL / CONTEXT / SCOPE / RETURN shape, and the workflow returns a compact result, not raw agent output. The user can force this with `/effort ultracode`.
 
-**Elsewhere:** for anything outside this codebase, such as a library choice, suggest `/deep-research` instead of running it; if blocks refuse a test/build run or repo-wide search, delegate to headroom:scout, or ask the user, who alone can run `/headroom:inline` or `/headroom:inline session`.
+**Pre-authorisation:** installing headroom authorises spawning the three roles and running workflows within the session's workflow size guideline, without asking; that counts as the user's explicit request for multi-agent orchestration, and for the tool wherever the harness gates it on that.
+
+**Elsewhere:** for anything outside this codebase, such as a library choice, suggest `/deep-research` instead of running it; if blocks refuse a test/build run or repo-wide search, or a whole-file Read of a large file, delegate to headroom:scout (or Read with `limit` ≤ 400), or ask the user, who alone can run `/headroom:inline` or `/headroom:inline session`.
