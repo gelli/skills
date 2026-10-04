@@ -81,7 +81,7 @@ esac
 # A targeted range: a plain integer limit of 400 or fewer.
 case "$limit" in
   ''|*[!0-9]*) : ;;
-  *) [ "$limit" -gt "$MAX_LIMIT_LINES" ] || exit 0 ;;
+  *) if [ "$limit" -le "$MAX_LIMIT_LINES" ] 2>/dev/null; then exit 0; fi ;;
 esac
 
 [ -f "$file_path" ] || exit 0
@@ -111,7 +111,11 @@ if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -n "$session_id" ]; then
   fi
 fi
 
-kb=$((size / 1024))
+if [ "$size" -ge 1024 ]; then
+  size_text="$((size / 1024)) KB"
+else
+  size_text="$size bytes"
+fi
 hr_log_fields block read-guard tool_name Read bytes "$size" detail "$file_path"
-hr_deny "headroom: $file_path is ${kb} KB, too large to read into the main context whole. Delegate to headroom:scout with a specific question about it, or Read a targeted range with offset and limit (at most $MAX_LIMIT_LINES lines), or ask the user to run /headroom:inline (this call only) or /headroom:inline session."
+hr_deny "headroom: $file_path is ${size_text}, too large to read into the main context whole. Delegate to headroom:scout with a specific question about it, or Read a targeted range with offset and limit (at most $MAX_LIMIT_LINES lines), or ask the user to run /headroom:inline (this call only) or /headroom:inline session."
 exit 0

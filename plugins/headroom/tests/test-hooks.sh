@@ -234,6 +234,16 @@ run_agent_matrix() { # label
   check "Explore with model allowed"     allow "$(agent_decision '{"tool_input":{"subagent_type":"Explore","model":"haiku"}}')"
   check "Plan with model allowed"        allow "$(agent_decision '{"tool_input":{"subagent_type":"Plan","model":"sonnet"}}')"
   check "Explore inherit still denied"   deny  "$(agent_decision '{"tool_input":{"subagent_type":"Explore","model":"inherit"}}')"
+  check "explore (lowercase) no model denied"  deny  "$(agent_decision '{"tool_input":{"subagent_type":"explore"}}')"
+  check "EXPLORE no model denied"        deny  "$(agent_decision '{"tool_input":{"subagent_type":"EXPLORE"}}')"
+  check "plan (lowercase) no model denied" deny "$(agent_decision '{"tool_input":{"subagent_type":"plan"}}')"
+  check "Explore with trailing space no model denied" deny "$(agent_decision '{"tool_input":{"subagent_type":"Explore "}}')"
+  check "explore with model allowed"     allow "$(agent_decision '{"tool_input":{"subagent_type":"explore","model":"haiku"}}')"
+  check "general_purpose no model denied" deny "$(agent_decision '{"tool_input":{"subagent_type":"general_purpose"}}')"
+  check "General-Purpose no model denied" deny "$(agent_decision '{"tool_input":{"subagent_type":"General-Purpose"}}')"
+  check "CLAUDE no model denied"         deny  "$(agent_decision '{"tool_input":{"subagent_type":"CLAUDE"}}')"
+  check "headroom:Scout lowered denied"  deny  "$(agent_decision '{"tool_input":{"subagent_type":"headroom:Scout","model":"haiku","name":"x"}}')"
+  check "headroom:SCOUT raised allowed"  allow "$(agent_decision '{"tool_input":{"subagent_type":"headroom:SCOUT","model":"sonnet"}}')"
   check "general-purpose no model denied" deny "$(agent_decision '{"tool_input":{"subagent_type":"general-purpose"}}')"
   check "general-purpose with model allowed" allow "$(agent_decision '{"tool_input":{"subagent_type":"general-purpose","model":"sonnet"}}')"
   check "general-purpose with name and model unaffected" allow "$(agent_decision '{"tool_input":{"subagent_type":"general-purpose","model":"sonnet","name":"casey"}}')"
@@ -262,6 +272,7 @@ run_read_guard_matrix() { # label
   head -c 40000 /dev/zero | tr '\0' 'x' >"$big"
   printf 'tiny\n' >"$small"
   head -c 40000 /dev/zero >"$img"
+  head -c 40000 /dev/zero >"$rg_dir/doc.pdf"
   rg_data="$rg_dir/data"
   # rg_json <session> <agent|-> <path> <offset|-> <limit|-> -- builds the
   # hook input with printf; "-" omits a field.
@@ -291,6 +302,7 @@ run_read_guard_matrix() { # label
   check "offset alone on a big file denied"    deny  "$(rg_call rg1 - $big 10 -)"
   check "image (uppercase ext) allowed"        allow "$(rg_call rg1 - $img - -)"
   check "pdf allowed"                          allow "$(rg_call rg1 - $rg_dir/doc.pdf - -)"
+  check "out-of-range limit falls through to size check" deny "$(rg_call rg1 - $big - 99999999999999999999)"
   check "read_max_bytes 0 turns it off"        allow "$(rg_call rg1 - $big - - 0)"
   check "read_max_bytes raised above the file" allow "$(rg_call rg1 - $big - - 50000)"
   check "read_max_bytes lowered denies small"  deny  "$(rg_call rg1 - $small - - 3)"
@@ -305,6 +317,11 @@ run_read_guard_matrix() { # label
   case "$out" in
     *'39 KB'*'headroom:scout'*'offset'*'/headroom:inline'*) echo "  ok    deny reason names size, scout, offset/limit and /headroom:inline" ;;
     *) echo "  FAIL  deny reason incomplete: $out"; fail=1 ;;
+  esac
+  out=$(rg_json rg1 - "$small" - - | CLAUDE_PLUGIN_DATA="$rg_data" CLAUDE_PLUGIN_OPTION_READ_MAX_BYTES=3 "$hooks/read-guard.sh" 2>/dev/null)
+  case "$out" in
+    *'is 5 bytes'*) echo "  ok    deny reason shows bytes below 1 KB" ;;
+    *) echo "  FAIL  deny reason for a sub-KB file: $out"; fail=1 ;;
   esac
   case "$(cat "$rg_data/headroom.log.jsonl" 2>/dev/null)" in
     *'"event":"block"'*'"hook":"read-guard"'*'"bytes":40000'*) echo "  ok    deny is logged" ;;

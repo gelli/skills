@@ -1,8 +1,8 @@
 #!/bin/sh
-# headroom UserPromptSubmit hook: /headroom:inline lifts block.sh's block for
-# the next blocked call ("once"), or for the rest of the session ("session").
-# Writes the scope to $CLAUDE_PLUGIN_DATA/inline/<session_id>; block.sh reads
-# it and, for "once", deletes it after use. Any other prompt is a no-op.
+# headroom UserPromptSubmit hook: /headroom:inline lifts block.sh's and
+# read-guard.sh's block for the next blocked call ("once"), or for the rest of the session ("session").
+# Writes the scope to $CLAUDE_PLUGIN_DATA/inline/<session_id>; block.sh and read-guard.sh
+# read it and, for "once", deletes it after use. Any other prompt is a no-op.
 #
 # UserPromptSubmit fires with the raw submitted text before slash-command
 # expansion, so this matches the literal "/headroom:inline" prefix rather

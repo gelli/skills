@@ -64,7 +64,7 @@ _Avoid_: retry, upgrade
 
 **Block**:
 A refusal of a delegable tool call made by the orchestrator, including a whole-file Read of a large file (on by default); workers are never blocked.
-_Avoid_: deny, guard
+_Avoid_: deny, refusal
 
 **Nudge**:
 A reminder injected into the main context after the orchestrator took in a large tool output.

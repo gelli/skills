@@ -66,6 +66,9 @@ isolation=$(printf '%s\n' "$fields" | sed -n 5p)
 run_in_background=$(printf '%s\n' "$fields" | sed -n 6p)
 model_lc=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]')
 role=${subagent_type#headroom:}
+# Claude Code resolves subagent_type ignoring case, whitespace, "-" and "_",
+# so match on the normalised value; messages keep the original spelling.
+role=$(printf '%s' "$role" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]_-')
 if [ -n "$name" ]; then named=true; else named=false; fi
 
 deny_and_log() { # reason
@@ -145,7 +148,7 @@ case "$role" in
     fi
     deny_and_log "headroom: headroom:$role's default model is $default_name; roles may only be raised, never lowered. Re-issue with model omitted (uses $default_name) or raised to sonnet or opus."
     ;;
-  Explore|Plan)
+  explore|plan)
     # Explore actually runs on the main session's model (capped at Opus), not
     # its own, so a model-less spawn is denied (plan item 4.7).
     if [ -z "$model" ]; then
@@ -153,7 +156,7 @@ case "$role" in
     fi
     allow_and_log "" "$model" false
     ;;
-  ""|general-purpose|claude)
+  ""|generalpurpose|claude)
     if [ -z "$model" ]; then
       deny_and_log "headroom: subagent_type \"$subagent_type\" has no default model, so it would inherit the orchestrator model. Re-issue the call with an explicit model: haiku, sonnet, or opus."
     fi
