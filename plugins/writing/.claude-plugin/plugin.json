@@ -1,0 +1,18 @@
+{
+  "name": "writing",
+  "version": "0.1.0",
+  "description": "Writing skills for prose people read: technical blog posts, technical primers, and rewriting copy so it sounds human instead of corporate.",
+  "author": {
+    "name": "Chris Heizmann"
+  },
+  "keywords": [
+    "writing",
+    "blog",
+    "primer",
+    "documentation",
+    "copywriting"
+  ],
+  "homepage": "https://github.com/gelli/skills",
+  "repository": "https://github.com/gelli/skills",
+  "license": "MIT"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "consolidate-plans",
+  "version": "0.1.0",
+  "description": "Consolidates implemented superpowers plans and specs into project documentation, and reports which plans are implemented and which are still open.",
+  "author": {
+    "name": "Chris Heizmann"
+  },
+  "keywords": [
+    "documentation",
+    "superpowers",
+    "plans",
+    "cleanup"
+  ],
+  "homepage": "https://github.com/gelli/skills",
+  "repository": "https://github.com/gelli/skills",
+  "license": "MIT"
+}

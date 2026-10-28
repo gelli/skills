@@ -1,0 +1,16 @@
+{
+  "name": "deepen",
+  "version": "0.1.0",
+  "description": "Rewrites a task prompt into a deeper version at the same scope, held to the standard a top practitioner of the field would apply.",
+  "author": {
+    "name": "Chris Heizmann"
+  },
+  "keywords": [
+    "prompting",
+    "prompt-engineering",
+    "planning"
+  ],
+  "homepage": "https://github.com/gelli/skills",
+  "repository": "https://github.com/gelli/skills",
+  "license": "MIT"
+}

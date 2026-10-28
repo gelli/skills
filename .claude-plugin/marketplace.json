@@ -30,6 +30,42 @@
         "context",
         "hooks"
       ]
+    },
+    {
+      "name": "writing",
+      "source": "./plugins/writing",
+      "description": "Writing skills for prose people read: technical blog posts, technical primers, and rewriting copy so it sounds human instead of corporate.",
+      "version": "0.1.0",
+      "keywords": [
+        "writing",
+        "blog",
+        "primer",
+        "documentation",
+        "copywriting"
+      ]
+    },
+    {
+      "name": "deepen",
+      "source": "./plugins/deepen",
+      "description": "Rewrites a task prompt into a deeper version at the same scope, held to the standard a top practitioner of the field would apply.",
+      "version": "0.1.0",
+      "keywords": [
+        "prompting",
+        "prompt-engineering",
+        "planning"
+      ]
+    },
+    {
+      "name": "consolidate-plans",
+      "source": "./plugins/consolidate-plans",
+      "description": "Consolidates implemented superpowers plans and specs into project documentation, and reports which plans are implemented and which are still open.",
+      "version": "0.1.0",
+      "keywords": [
+        "documentation",
+        "superpowers",
+        "plans",
+        "cleanup"
+      ]
     }
   ]
 }
