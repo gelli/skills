@@ -427,4 +427,7 @@ check "README warns about saved scripts" 1 "$(grep -ciE 'saved workflow scripts?
 check "README Limits names effort" 1 "$(sed -n '/^## Limits/,/^## /p' "$root/README.md" | grep -c effort | sed 's/^[1-9][0-9]*$/1/')"
 check "no model-routing outside the headroom README" 0 "$(grep -rl model-routing "$root/.." 2>/dev/null | grep -vcE 'headroom/(README.md|tests/test-hooks.sh)')"
 
+check "plugin.json at 0.5.0" 0.5.0 "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$root/.claude-plugin/plugin.json")"
+check "marketplace headroom entry at 0.5.0" 0.5.0 "$(python3 -c 'import json,sys;print([p["version"] for p in json.load(open(sys.argv[1]))["plugins"] if p["name"]=="headroom"][0])' "$root/../../.claude-plugin/marketplace.json")"
+
 [ $fail -eq 0 ] && echo "all hook tests passed" || { echo "hook tests FAILED"; exit 1; }
