@@ -344,7 +344,28 @@ case "$out" in "<headroom>"*"</headroom>") echo "  ok    wrapped in <headroom> t
 case "$out" in *"# Headroom"*) echo "  ok    contains rules.md" ;; *) echo "  FAIL  rules.md missing"; fail=1 ;; esac
 case "$out" in *"## Reading"*) echo "  ok    rules has ## Reading" ;; *) echo "  FAIL  ## Reading missing"; fail=1 ;; esac
 case "$out" in *"headroom:scout"*) echo "  ok    rules names headroom:scout" ;; *) echo "  FAIL  headroom:scout missing"; fail=1 ;; esac
-case "$out" in *"Agent and Workflow"*) echo "  ok    preface names Agent and Workflow checks" ;; *) echo "  FAIL  preface lacks Agent and Workflow"; fail=1 ;; esac
+case "$out" in *"Agent check"*"Workflow check"*) echo "  ok    preface names Agent and Workflow checks" ;; *) echo "  FAIL  preface lacks Agent and Workflow"; fail=1 ;; esac
 check "empty plugin root prints nothing" "" "$(CLAUDE_PLUGIN_ROOT=/nonexistent $inject </dev/null)"
+
+echo "texts"
+for g in "$guard" "$wfguard"; do
+  if [ "$g" = "$guard" ]; then in='{"tool_input":{}}'; else in='{"tool_input":{"script":"agent(p, {})"}}'; fi
+  r=$(printf '%s' "$in" | $g 2>/dev/null)
+  case "$r" in *CLAUDE_CODE_SUBAGENT_MODEL*) echo "  ok    no-model reason names CLAUDE_CODE_SUBAGENT_MODEL ($(basename "${g##* }"))" ;; *) echo "  FAIL  no-model reason lacks CLAUDE_CODE_SUBAGENT_MODEL ($(basename "${g##* }"))"; fail=1 ;; esac
+done
+for in in '{"tool_input":{"subagent_type":"fork","model":"sonnet"}}' '{"tool_input":{"model":"fable"}}'; do
+  r=$(printf '%s' "$in" | $guard 2>/dev/null)
+  case "$r" in *haiku*sonnet*opus*) echo "  ok    deny reason names haiku, sonnet, opus" ;; *) echo "  FAIL  deny reason lacks the three models: $in"; fail=1 ;; esac
+done
+case "$out" in *"refuse a spawn without"*mythos*) echo "  FAIL  preface claims the Agent check refuses mythos"; fail=1 ;; *) echo "  ok    preface makes no mythos claim for the Agent check" ;; esac
+case "$out" in *"Workflow check"*mythos*) echo "  ok    preface lists mythos under the Workflow check" ;; *) echo "  FAIL  preface lacks mythos under the Workflow check"; fail=1 ;; esac
+d=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["description"])' "$root/hooks/hooks.json" 2>/dev/null)
+case "$d" in *Workflow*) echo "  ok    description field names Workflow" ;; *) echo "  FAIL  description field lacks Workflow"; fail=1 ;; esac
+case "$(cat "$root/rules.md")" in *HEADROOM_READ_BUDGET*HEADROOM_EDIT_BUDGET*) echo "  ok    rules names both budget settings" ;; *) echo "  FAIL  rules lacks budget settings"; fail=1 ;; esac
+check "scout.md has no 'instead of'" 0 "$(grep -cE 'instead of|, not |not just' "$root/agents/scout.md")"
+check "README drops CLAUDE_CODE_SUBAGENT_MODEL=sonnet" 0 "$(grep -c 'CLAUDE_CODE_SUBAGENT_MODEL=sonnet' "$root/README.md")"
+check "README names 2.1.312" 1 "$(grep -c '2\.1\.312' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
+check "README names the fallback folder" 1 "$(grep -c 'TMPDIR:-/tmp}/headroom' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
+check "no model-routing outside the headroom README" 0 "$(grep -rl model-routing "$root/.." 2>/dev/null | grep -vcE 'headroom/(README.md|tests/test-hooks.sh)')"
 
 [ $fail -eq 0 ] && echo "all hook tests passed" || { echo "hook tests FAILED"; exit 1; }

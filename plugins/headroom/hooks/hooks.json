@@ -1,5 +1,5 @@
 {
-  "description": "Headroom: inject the tier rules every session and refuse Agent spawns without an explicit, allowed model, and nudge toward the scout once a prompt has read a lot and toward a worker once it has edited several files.",
+  "description": "Headroom: inject the tier rules every session and refuse Agent spawns and Workflow scripts without an explicit, allowed model, and nudge toward the scout once a prompt has read a lot and toward a worker once it has edited several files.",
   "hooks": {
     "SessionStart": [
       {

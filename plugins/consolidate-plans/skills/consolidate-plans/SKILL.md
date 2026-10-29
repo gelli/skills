@@ -55,7 +55,7 @@ Doc conventions:
 
 ## Phase 4 — Independent fact-check (never skip)
 
-Dispatch one reviewer subagent per touched doc (Sonnet-tier; see model-routing if available). The reviewer verifies the doc's claims against named source files and reports findings with file:line evidence. Fix Important findings, re-verify.
+Dispatch one reviewer subagent per touched doc (Sonnet-tier; see the headroom plugin if installed). The reviewer verifies the doc's claims against named source files and reports findings with file:line evidence. Fix Important findings, re-verify.
 
 This gate catches real errors: in the origin run it found an invented failure-mode claim, a wrong log-stream claim, and a misleading env-var-default claim — all plausible prose that contradicted source.
 

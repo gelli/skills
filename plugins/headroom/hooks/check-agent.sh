@@ -69,7 +69,7 @@ esac
 [ "$subagent_type" = "headroom:scout" ] && [ -z "$model" ] && exit 0
 
 case "$model" in
-  "") deny "headroom: Agent call has no model parameter, so the subagent would inherit the orchestrator model. Re-issue the call with model: haiku (mechanical, high-volume), sonnet (engineering judgment, the implementation floor), or opus (only when the task needs top-tier reasoning, is fully briefable, and isolation or parallelism pays)." ;;
+  "") deny "headroom: Agent call has no model parameter, so the subagent would run on the session model (or CLAUDE_CODE_SUBAGENT_MODEL, when set). Re-issue the call with model: haiku (mechanical, high-volume), sonnet (engineering judgment, the implementation floor), or opus (only when the task needs top-tier reasoning, is fully briefable, and isolation or parallelism pays)." ;;
   fable) deny "headroom: model \\\"fable\\\" is not allowed for subagents. Fable is orchestrator-only. Use haiku, sonnet, or opus." ;;
 esac
 

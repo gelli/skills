@@ -7,7 +7,7 @@ Keeps the orchestrator's context small. The main session reads and edits less it
 Four hooks and one agent:
 
 - **SessionStart** injects `rules.md` on startup, clear and after every compaction. The rules pre-authorise Haiku, Sonnet and Opus spawns, workflows and deep research (no confirmation prompt), and define the tiers, review routing, the brief every delegation carries, a Reading section (when to hand reading to the scout) and the Fable orchestrator-only rule.
-- **PreToolUse on `Agent`** denies a spawn that would land on the orchestrator model: no `model` parameter, `model: "fable"`, or `subagent_type: "fork"`. The denial names the allowed models so Claude re-issues the call. The `headroom:scout` agent passes without a `model` because it pins Haiku itself.
+- **PreToolUse on `Agent`** denies a spawn that would land on the session model: no `model` parameter, `model: "fable"`, or `subagent_type: "fork"`. The denial names the allowed models so Claude re-issues the call. The `headroom:scout` agent passes without a `model` because it pins Haiku itself.
 - **PreToolUse on `Workflow`** reads the script (inline `script` or the file at `scriptPath`) and denies one that names `fable` or `mythos`, or holds an `agent(` call whose options name no `model`. The denial tells Claude to write `haiku`, `sonnet` or `opus` literally in each call.
 - **PostToolUse** (`budget.sh`) keeps two counters for the main session and nudges once per user prompt for each:
   - Reading: when read output since the prompt passes the reading budget, the nudge names `headroom:scout`. Read, Grep, Glob, WebFetch, WebSearch, MCP tools and Bash count. Bash counts stdout plus stderr, and nothing once the output is persisted to a file.
@@ -27,6 +27,8 @@ Nothing blocks except the Agent and Workflow checks. The plugin writes no log; m
 Counter state is one small file per session in `CLAUDE_PLUGIN_DATA`.
 
 ## Requirements
+
+Claude Code 2.1.312 or later, because the budget counters restart on the `prompt_id` that hook input carries from that version. Counter state lives in `CLAUDE_PLUGIN_DATA`, falling back to the folder `${TMPDIR:-/tmp}/headroom`.
 
 Hooks are POSIX `sh` and parse hook input with `jq`, falling back to `python3`. With neither installed, every hook lets the call through and writes one line to stderr.
 
@@ -48,11 +50,9 @@ Both plugins hook `PreToolUse` on `Agent` and their checks conflict, so remove m
 /plugin install headroom@gelli-skills
 ```
 
-Then set `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` in your environment, so subagents that omit a model land on Sonnet.
-
 ## Limits
 
-The Workflow check is a text heuristic. A model passed through a variable (`agent(prompt, { model: m })`) triggers a false denial, and a script that builds its `agent()` calls dynamically can escape the check. The denial message asks for the model written literally in each call. The doing budget counts Edit, Write and NotebookEdit only; edits through Bash (`sed -i`, heredocs) stay uncounted.
+The Workflow check is a text heuristic. It denies an `agent()` call whose options hold no literal `model` key, so a call that sets its model by shorthand (`{ model }`) or by key passes, and options built elsewhere and passed by variable (`agent(prompt, opts)`) are denied. The value of a `model` key is checked only when it is a literal string: a model passed by variable (`{ model: m }`) is not checked, a `fable` value included. A script that builds its `agent()` calls dynamically can escape the check. The denial message asks for the model written literally in each call. The doing budget counts Edit, Write and NotebookEdit only; edits through Bash (`sed -i`, heredocs) stay uncounted.
 
 ## Test
 

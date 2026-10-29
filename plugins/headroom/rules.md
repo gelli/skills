@@ -14,7 +14,7 @@ Fable subagents and forks stay forbidden.
 
 ## Spawn at all?
 
-Delegate when the work is token-heavy (logs, repo-wide search, long reads), repetitive, or parallel. Do a single lookup, a read of a file you already know, or a one-file edit inline. Batch several same-shape small tasks into one spawn with one brief that lists every file. The hooks nudge once per prompt past 24 KB of reading or a third edited file.
+Delegate when the work is token-heavy (logs, repo-wide search, long reads), repetitive, or parallel. Do a single lookup, a read of a file you already know, or a one-file edit inline. Batch several same-shape small tasks into one spawn with one brief that lists every file. The hooks nudge once per prompt past 24 KB of reading (`HEADROOM_READ_BUDGET`) or a third edited file (`HEADROOM_EDIT_BUDGET`).
 
 ## Reading
 

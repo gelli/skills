@@ -128,6 +128,6 @@ missing=$(printf '%s' "$script" | tr '\n\r\t' '\001  ' | awk '
     print bad
   }')
 if [ "$missing" = 1 ]; then
-  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"headroom: an agent() call in this workflow names no model, so it would inherit the session model. Give every agent() call an explicit model (haiku, sonnet or opus); write the model literally in each call'"'"'s options, since this check cannot follow a model passed through a variable."}}'
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"headroom: an agent() call in this workflow names no model, so it would run on the session model (or CLAUDE_CODE_SUBAGENT_MODEL, when set). Give every agent() call an explicit model (haiku, sonnet or opus); write the model literally in each call'"'"'s options, since this check cannot follow a model passed through a variable."}}'
 fi
 exit 0
