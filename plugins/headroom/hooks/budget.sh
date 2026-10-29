@@ -1,8 +1,13 @@
 #!/bin/sh
 # headroom PostToolUse hook for Read|Bash|Grep|Glob|WebFetch|WebSearch|
-# mcp__.*: counts how many bytes of tool output the main session took in
-# since the last prompt and, once the total passes the reading budget,
-# nudges once per prompt toward headroom:scout.
+# mcp__.*|Edit|Write|NotebookEdit. Two budgets per prompt, each nudging once:
+# - reading: counts the bytes of tool output the main session took in since
+#   the last prompt and, once the total passes the reading budget, nudges
+#   toward headroom:scout.
+# - doing: counts distinct files edited (Edit, Write: tool_input.file_path;
+#   NotebookEdit: tool_input.notebook_path) and, once the count reaches the
+#   edit budget, nudges to hand the remaining implementation to a worker.
+# Edit tools add nothing to the reading bytes.
 #
 # Size measures what the model actually saw:
 # - Bash: stdout + stderr, zero when tool_response.persistedOutputPath is set
@@ -12,11 +17,11 @@
 # Worker tool calls (agent_id set) are never counted or nudged.
 #
 # State: ${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/headroom}/budget-<session_id>
-# holds prompt_id, read_bytes and read_nudged; a new prompt_id resets the
-# counters. Updates run under a mkdir lock (20 tries, 0.05 s apart); when the
+# holds prompt_id, read_bytes, read_nudged, edit_nudged and edited_files (one
+# path per line, last); a new prompt_id resets all of them. Updates run under a mkdir lock (20 tries, 0.05 s apart); when the
 # lock stays busy the call is not counted.
-# Budget: HEADROOM_READ_BUDGET bytes (default 24576, about 6k tokens); 0 turns
-# the nudge off.
+# Budgets: HEADROOM_READ_BUDGET bytes (default 24576, about 6k tokens) and
+# HEADROOM_EDIT_BUDGET distinct files (default 3); 0 turns a nudge off.
 # Parses hook input with jq, falling back to python3. HEADROOM_PARSER=python3
 # forces the python3 path (tests); HEADROOM_PARSER=none behaves as if neither
 # is installed. Without a parser the hook does nothing and notes it on stderr.
@@ -27,7 +32,9 @@ input=$(cat 2>/dev/null || true)
 
 budget=${HEADROOM_READ_BUDGET:-24576}
 case "$budget" in ''|*[!0-9]*) budget=24576 ;; esac
-[ "$budget" -gt 0 ] || exit 0
+ebudget=${HEADROOM_EDIT_BUDGET:-3}
+case "$ebudget" in ''|*[!0-9]*) ebudget=3 ;; esac
+[ "$budget" -gt 0 ] || [ "$ebudget" -gt 0 ] || exit 0
 
 parser=none
 if [ "${HEADROOM_PARSER:-auto}" = none ]; then
@@ -46,8 +53,12 @@ case "$parser" in
       (.prompt_id // ""),
       (.agent_id // ""),
       (if (.tool_name // "") == "Bash" and (.tool_response.persistedOutputPath // null) != null then "skip" else "" end),
+      (.tool_name // ""),
+      (if (.tool_name // "") == "NotebookEdit" then (.tool_input.notebook_path // "") else (.tool_input.file_path // "") end | gsub("[\r\n]"; " ")),
       (
-        if (.tool_name // "") == "Bash" then
+        if ((.tool_name // "") | IN("Edit", "Write", "NotebookEdit")) then
+          ""
+        elif (.tool_name // "") == "Bash" then
           (.tool_response.stdout // "") + (.tool_response.stderr // "")
         elif (.tool_name // "") == "Read" then
           (.tool_response.file.content // "")
@@ -71,7 +82,16 @@ tr = d.get("tool_response")
 if not isinstance(tr, dict):
     tr = {}
 skip = ""
-if name == "Bash":
+ti = d.get("tool_input")
+if not isinstance(ti, dict):
+    ti = {}
+path = ti.get("notebook_path" if name == "NotebookEdit" else "file_path") or ""
+if not isinstance(path, str):
+    path = ""
+path = path.replace("\r", " ").replace("\n", " ")
+if name in ("Edit", "Write", "NotebookEdit"):
+    measured = ""
+elif name == "Bash":
     if tr.get("persistedOutputPath") is not None:
         skip = "skip"
     measured = (tr.get("stdout") or "") + (tr.get("stderr") or "")
@@ -84,6 +104,8 @@ print(d.get("session_id") or "")
 print(d.get("prompt_id") or "")
 print(d.get("agent_id") or "")
 print(skip)
+print(name)
+print(path)
 sys.stdout.flush()
 sys.stdout.buffer.write(measured.encode("utf-8"))
 sys.stdout.buffer.write(b"\n")' 2>/dev/null)
@@ -104,10 +126,19 @@ session_id=$(printf '%s\n' "$fields" | sed -n 2p | tr -cd 'A-Za-z0-9_-')
 prompt_id=$(printf '%s\n' "$fields" | sed -n 3p)
 agent_id=$(printf '%s\n' "$fields" | sed -n 4p)
 skip=$(printf '%s\n' "$fields" | sed -n 5p)
-measured=$(printf '%s\n' "$fields" | sed -n '6,$p')
+tool=$(printf '%s\n' "$fields" | sed -n 6p)
+epath=$(printf '%s\n' "$fields" | sed -n 7p)
+measured=$(printf '%s\n' "$fields" | sed -n '8,$p')
+case "$tool" in Edit|Write|NotebookEdit) is_edit=1 ;; *) is_edit=0 ;; esac
 
 [ -z "$agent_id" ] || exit 0
 [ -n "$session_id" ] || exit 0
+if [ "$is_edit" -eq 1 ]; then
+  [ "$ebudget" -gt 0 ] || exit 0
+  [ -n "$epath" ] || exit 0
+else
+  [ "$budget" -gt 0 ] || exit 0
+fi
 
 size=0
 if [ "$skip" != skip ]; then
@@ -130,27 +161,53 @@ trap 'rmdir "$lock" 2>/dev/null' EXIT
 old_prompt=$(sed -n 's/^prompt_id=//p' "$state" 2>/dev/null | sed -n 1p)
 read_bytes=$(sed -n 's/^read_bytes=//p' "$state" 2>/dev/null | sed -n 1p)
 nudged=$(sed -n 's/^read_nudged=//p' "$state" 2>/dev/null | sed -n 1p)
+edit_nudged=$(sed -n 's/^edit_nudged=//p' "$state" 2>/dev/null | sed -n 1p)
+edited=$(sed -n 's/^edited_files=//p' "$state" 2>/dev/null)
 case "$read_bytes" in ''|*[!0-9]*) read_bytes=0 ;; esac
 case "$nudged" in 1) ;; *) nudged=0 ;; esac
+case "$edit_nudged" in 1) ;; *) edit_nudged=0 ;; esac
 if [ "$old_prompt" != "$prompt_id" ]; then
   read_bytes=0
   nudged=0
+  edit_nudged=0
+  edited=
 fi
 
-read_bytes=$((read_bytes + size))
 emit=0
-if [ "$read_bytes" -gt "$budget" ] && [ "$nudged" -eq 0 ]; then
-  emit=1
-  nudged=1
+emit_edit=0
+n_edited=0
+if [ "$is_edit" -eq 1 ]; then
+  if ! printf '%s\n' "$edited" | grep -qxF -- "$epath"; then
+    if [ -n "$edited" ]; then edited="$edited
+$epath"; else edited=$epath; fi
+  fi
+  n_edited=$(printf '%s\n' "$edited" | grep -c .)
+  if [ "$n_edited" -ge "$ebudget" ] && [ "$edit_nudged" -eq 0 ]; then
+    emit_edit=1
+    edit_nudged=1
+  fi
+else
+  read_bytes=$((read_bytes + size))
+  if [ "$read_bytes" -gt "$budget" ] && [ "$nudged" -eq 0 ]; then
+    emit=1
+    nudged=1
+  fi
 fi
 
-printf 'prompt_id=%s\nread_bytes=%s\nread_nudged=%s\n' "$prompt_id" "$read_bytes" "$nudged" > "$state.tmp" \
-  && mv "$state.tmp" "$state"
+{
+  printf 'prompt_id=%s\nread_bytes=%s\nread_nudged=%s\nedit_nudged=%s\n' "$prompt_id" "$read_bytes" "$nudged" "$edit_nudged"
+  # Paths are stored one per line after the last key; each line is prefixed so
+  # the sed reader above collects every line.
+  printf '%s\n' "$edited" | sed '/^$/d; s/^/edited_files=/'
+} > "$state.tmp" && mv "$state.tmp" "$state"
 
 if [ "$emit" -eq 1 ]; then
   # ~4 bytes per token.
   kt=$((read_bytes / 4096))
   [ "$kt" -gt 0 ] || kt=1
   printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"headroom: about %sk tokens of tool output entered the main context since the last prompt. Remaining lookups for this prompt fit headroom:scout, which reads in its own context and returns a short report."}}\n' "$kt"
+fi
+if [ "$emit_edit" -eq 1 ]; then
+  printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"headroom: this prompt has now edited %s files in the main session. Hand the remaining implementation to a worker (general-purpose, model sonnet) with a brief, and review its diff here."}}\n' "$n_edited"
 fi
 exit 0

@@ -132,6 +132,24 @@ bout() {
   esac
 }
 
+# ejson <tool> <path> [extra top-level json fields] -> hook input for an edit
+ejson() {
+  case "$1" in
+    NotebookEdit) printf '{"session_id":"s1","prompt_id":"p1"%s,"tool_name":"NotebookEdit","tool_input":{"notebook_path":"%s"},"tool_response":{"ok":true}}' "${3:-}" "$2" ;;
+    *) printf '{"session_id":"s1","prompt_id":"p1"%s,"tool_name":"%s","tool_input":{"file_path":"%s"},"tool_response":{"ok":true}}' "${3:-}" "$1" "$2" ;;
+  esac
+}
+
+# eout <json> -> edit | quiet | other (data dir from $BD)
+eout() {
+  out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$BD" "$budget" 2>/dev/null)
+  case "$out" in
+    "") printf 'quiet' ;;
+    *'"hookEventName":"PostToolUse"'*'general-purpose'*'sonnet'*) printf 'edit' ;;
+    *) printf 'other' ;;
+  esac
+}
+
 budget_matrix() { # label
   echo "$1"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
@@ -158,6 +176,31 @@ budget_matrix() { # label
   check "budget 1000"        nudge "$(HEADROOM_READ_BUDGET=1000 bout "$(bjson Read 1500)")"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
   check "budget 0 never"     quiet "$(HEADROOM_READ_BUDGET=0 bout "$(bjson Read 90000)")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "edit a"             quiet "$(eout "$(ejson Edit /w/a)")"
+  check "write b"            quiet "$(eout "$(ejson Write /w/b)")"
+  check "edit a again"       quiet "$(eout "$(ejson Edit /w/a)")"
+  check "edit b (2 distinct)" quiet "$(eout "$(ejson Edit /w/b)")"
+  check "edit c nudges"      edit "$(eout "$(ejson Edit /w/c)")"
+  check "write d stays quiet" quiet "$(eout "$(ejson Write /w/d)")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  eout "$(ejson Edit /w/a)" >/dev/null; eout "$(ejson Edit /w/b)" >/dev/null
+  check "notebook_path counts" edit "$(eout "$(ejson NotebookEdit /w/n.ipynb)")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  eout "$(ejson Edit /w/a)" >/dev/null; eout "$(ejson Edit /w/b)" >/dev/null
+  eout "$(ejson Edit /w/c)" >/dev/null
+  check "new prompt resets edits" quiet "$(eout "$(ejson Edit /w/d | sed 's/"p1"/"p2"/')")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  for p in a b c d e; do r=$(eout "$(ejson Edit /w/$p ',"agent_id":"w1"')"); done
+  check "edit agent_id: never" quiet "$r"
+  check "edit agent_id: no state" 0 "$(ls "$BD" | wc -l | tr -d ' ')"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  r=quiet; for p in a b c d e; do o=$(HEADROOM_EDIT_BUDGET=0 eout "$(ejson Edit /w/$p)"); [ "$o" = quiet ] || r=$o; done
+  check "edit budget 0 never" quiet "$r"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "edit budget 1 first edit" edit "$(HEADROOM_EDIT_BUDGET=1 eout "$(ejson Edit /w/a)")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "edits do not feed read budget" quiet "$(bout "$(ejson Edit /w/a)")"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
   check "unparseable input"  quiet "$(bout 'not json')"
 }
