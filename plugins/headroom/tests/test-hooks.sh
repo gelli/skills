@@ -421,6 +421,10 @@ check "scout.md sets effort medium" 1 "$(grep -c '^effort: medium$' "$root/agent
 check "README drops CLAUDE_CODE_SUBAGENT_MODEL=sonnet" 0 "$(grep -c 'CLAUDE_CODE_SUBAGENT_MODEL=sonnet' "$root/README.md")"
 check "README names 2.1.312" 1 "$(grep -c '2\.1\.312' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
 check "README names the fallback folder" 1 "$(grep -c 'TMPDIR:-/tmp}/headroom' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
+check "README drops the scout model exception" 0 "$(grep -c 'passes without a' "$root/README.md")"
+check "README drops workflow pre-authorisation" 0 "$(grep -c 'pre-authorise Haiku, Sonnet and Opus spawns, workflows' "$root/README.md")"
+check "README warns about saved scripts" 1 "$(grep -ciE 'saved workflow scripts?.*effort|effort.*saved workflow scripts?' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
+check "README Limits names effort" 1 "$(sed -n '/^## Limits/,/^## /p' "$root/README.md" | grep -c effort | sed 's/^[1-9][0-9]*$/1/')"
 check "no model-routing outside the headroom README" 0 "$(grep -rl model-routing "$root/.." 2>/dev/null | grep -vcE 'headroom/(README.md|tests/test-hooks.sh)')"
 
 [ $fail -eq 0 ] && echo "all hook tests passed" || { echo "hook tests FAILED"; exit 1; }
