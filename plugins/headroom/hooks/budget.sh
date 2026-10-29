@@ -117,17 +117,23 @@ print(path)' 2>/dev/null)
     ;;
 esac
 
-if [ $rc -ne 0 ] || [ "$(printf '%s\n' "$fields" | sed -n 1p)" != parsed ]; then
+case "$fields" in parsed*) ok=1 ;; *) ok=0 ;; esac
+if [ $rc -ne 0 ] || [ "$ok" -ne 1 ]; then
   echo "headroom: could not parse hook input; budget skipped" >&2
   exit 0
 fi
 
-session_id=$(printf '%s\n' "$fields" | sed -n 2p | tr -cd 'A-Za-z0-9_-')
-prompt_id=$(printf '%s\n' "$fields" | sed -n 3p | tr -cd 'A-Za-z0-9_-')
-agent_id=$(printf '%s\n' "$fields" | sed -n 4p)
-size=$(printf '%s\n' "$fields" | sed -n 5p)
-tool=$(printf '%s\n' "$fields" | sed -n 6p)
-epath=$(printf '%s\n' "$fields" | sed -n 7p)
+{
+  IFS= read -r _parsed
+  IFS= read -r session_id
+  IFS= read -r prompt_id
+  IFS= read -r agent_id
+  IFS= read -r size
+  IFS= read -r tool
+  IFS= read -r epath
+} <<EOF_FIELDS
+$fields
+EOF_FIELDS
 case "$size" in ''|*[!0-9]*) size=0 ;; esac
 case "$tool" in Edit|Write|NotebookEdit) is_edit=1 ;; *) is_edit=0 ;; esac
 
