@@ -420,8 +420,12 @@ rules_check() { # file: required headings and tier lines present, "## Large chan
   ! grep -qF -- '## Large changes' "$1"
 }
 if rules_check "$root/rules.md"; then echo "  ok    rules sections and tiers present"; else echo "  FAIL  rules sections or tiers missing"; fail=1; fi
-git -C "$root/../.." show origin/main:plugins/headroom/rules.md > "$tmp/rules-0.4.md" 2>/dev/null
-if rules_check "$tmp/rules-0.4.md"; then echo "  FAIL  rules check accepts the 0.4 rules"; fail=1; else echo "  ok    rules check rejects the 0.4 rules"; fi
+# b4aaec7 is the 0.4 merge commit; origin/main holds the 0.5 rules after merge.
+if git -C "$root/../.." show b4aaec7:plugins/headroom/rules.md > "$tmp/rules-0.4.md" 2>/dev/null; then
+  if rules_check "$tmp/rules-0.4.md"; then echo "  FAIL  rules check accepts the 0.4 rules"; fail=1; else echo "  ok    rules check rejects the 0.4 rules"; fi
+else
+  echo "  FAIL  git show b4aaec7:plugins/headroom/rules.md failed"; fail=1
+fi
 check "scout.md has no 'instead of'" 0 "$(grep -cE 'instead of|, not |not just' "$root/agents/scout.md")"
 check "scout.md sets effort medium" 1 "$(grep -c '^effort: medium$' "$root/agents/scout.md")"
 check "README drops CLAUDE_CODE_SUBAGENT_MODEL=sonnet" 0 "$(grep -c 'CLAUDE_CODE_SUBAGENT_MODEL=sonnet' "$root/README.md")"
