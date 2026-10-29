@@ -165,6 +165,7 @@ bjson() {
 # bout <json> -> nudge | quiet (data dir from $BD)
 bout() {
   out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$BD" $budget 2>/dev/null)
+  printf '%s' "$out" >"$tmp/eraw"
   case "$out" in
     "") printf 'quiet' ;;
     *'"hookEventName":"PostToolUse"'*'headroom:scout'*) printf 'nudge' ;;
@@ -183,6 +184,7 @@ ejson() {
 # eout <json> -> edit | quiet | other (data dir from $BD)
 eout() {
   out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$BD" $budget 2>/dev/null)
+  printf '%s' "$out" >"$tmp/eraw"
   case "$out" in
     "") printf 'quiet' ;;
     *'"hookEventName":"PostToolUse"'*'general-purpose'*'sonnet'*) printf 'edit' ;;
@@ -222,6 +224,7 @@ budget_matrix() { # label
   check "edit a again"       quiet "$(eout "$(ejson Edit /w/a)")"
   check "edit b (2 distinct)" quiet "$(eout "$(ejson Edit /w/b)")"
   check "edit c nudges"      edit "$(eout "$(ejson Edit /w/c)")"
+  case "$(cat "$tmp/eraw")" in *"model sonnet, effort medium"*) echo "  ok    doing hint names model sonnet, effort medium" ;; *) echo "  FAIL  doing hint lacks model sonnet, effort medium"; fail=1 ;; esac
   check "write d stays quiet" quiet "$(eout "$(ejson Write /w/d)")"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
   eout "$(ejson Edit /w/a)" >/dev/null; eout "$(ejson Edit /w/b)" >/dev/null
@@ -374,6 +377,9 @@ case "$out" in *"# Headroom"*) echo "  ok    contains rules.md" ;; *) echo "  FA
 case "$out" in *"## Reading"*) echo "  ok    rules has ## Reading" ;; *) echo "  FAIL  ## Reading missing"; fail=1 ;; esac
 case "$out" in *"headroom:scout"*) echo "  ok    rules names headroom:scout" ;; *) echo "  FAIL  headroom:scout missing"; fail=1 ;; esac
 case "$out" in *"Agent check"*"Workflow check"*) echo "  ok    preface names Agent and Workflow checks" ;; *) echo "  FAIL  preface lacks Agent and Workflow"; fail=1 ;; esac
+pre=${out%%"# Headroom"*}
+case "$pre" in *"Agent check"*effort*"Workflow check"*effort*) echo "  ok    preface names effort under both checks" ;; *) echo "  FAIL  preface lacks effort under both checks"; fail=1 ;; esac
+case "$pre" in *scout*) echo "  FAIL  preface contains scout"; fail=1 ;; *) echo "  ok    preface does not contain scout" ;; esac
 check "empty plugin root prints nothing" "" "$(CLAUDE_PLUGIN_ROOT=/nonexistent $inject </dev/null)"
 
 echo "texts"
@@ -398,6 +404,8 @@ case "$out" in *"Agent check refuses"*mythos*"Workflow check"*) echo "  FAIL  pr
 case "$out" in *"Workflow check"*mythos*) echo "  ok    preface lists mythos under the Workflow check" ;; *) echo "  FAIL  preface lacks mythos under the Workflow check"; fail=1 ;; esac
 d=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["description"])' "$root/hooks/hooks.json" 2>/dev/null)
 case "$d" in *Workflow*) echo "  ok    description field names Workflow" ;; *) echo "  FAIL  description field lacks Workflow"; fail=1 ;; esac
+case "$d" in *effort*) echo "  ok    description field names effort" ;; *) echo "  FAIL  description field lacks effort"; fail=1 ;; esac
+check "no contrastive phrasing" 0 "$(cat "$root/rules.md" "$root/agents/scout.md" "$root/hooks/inject-rules.sh" "$root/hooks/hooks.json" | grep -cE 'instead of|rather than|, not |not just')"
 rules_check() { # file: required headings and tier lines present, "## Large changes" absent
   for s in '## Pre-authorisation' '## Spawn at all?' '## Reading' '## Tiers' '## Reviews' '## Parallelism' '## Every brief' '## Workflows' \
     '**haiku, medium**' '**sonnet, medium**' '**sonnet, high**' '**opus, medium**' '**opus, high**'; do

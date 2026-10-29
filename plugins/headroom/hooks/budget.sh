@@ -237,6 +237,6 @@ if [ "$emit" -eq 1 ]; then
   printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"headroom: about %sk tokens of tool output entered the main context since the last prompt. Remaining lookups for this prompt fit headroom:scout, which reads in its own context and returns a short report."}}\n' "$kt"
 fi
 if [ "$emit_edit" -eq 1 ]; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"headroom: this prompt has now edited %s files in the main session. Hand the remaining implementation to a worker (general-purpose, model sonnet) with a brief, and review its diff here."}}\n' "$n_edited"
+  printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"headroom: this prompt has now edited %s files in the main session. Hand the remaining implementation to a worker (general-purpose, model sonnet, effort medium) with a brief, and review its diff here."}}\n' "$n_edited"
 fi
 exit 0
