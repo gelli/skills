@@ -100,27 +100,44 @@ workflow_matrix() { # label
   check "model split across lines"  deny  "$(wf_decision '{"tool_input":{"script":"agent(\"x\", { model:\n  \u0027fable\u0027 })"}}')"
   check "scriptPath with fable"     deny  "$(wf_decision "{\"tool_input\":{\"scriptPath\":\"$tmp/fable.js\"}}")"
   check "named workflow"            allow "$(wf_decision '{"tool_input":{"name":"review-changes"}}')"
-  check "all agents sonnet"         allow "$(wf_decision '{"tool_input":{"script":"agent(\"a\", { model: \u0027sonnet\u0027 }); agent(\"b\", { model: \u0027sonnet\u0027 })"}}')"
+  check "all agents sonnet"         allow "$(wf_decision '{"tool_input":{"script":"agent(\"a\", { model: \u0027sonnet\u0027, effort: \u0027medium\u0027 }); agent(\"b\", { model: \u0027sonnet\u0027, effort: \u0027medium\u0027 })"}}')"
   check "unparseable input"         allow "$(wf_decision 'not json')"
   wfscript "agent without options"   deny  "agent('do x')"
   wfscript "agent without model"     deny  "agent(p, {label: 'a'})"
   wfscript "one of two lacks model"  deny  "agent(p, {model: 'haiku'}); agent(q, {label: 'b'})"
   wfscript "multi-line with model"   allow "agent(p, {
  label: 'a',
- model: 'haiku'
+ model: 'haiku',
+ effort: 'medium'
 })"
   wfscript "no agent call"           allow "const x = 1; log(x)"
   wfscript "reagent without model"   allow "reagent(p, {label: 'a'})"
   wfscript "agent after punctuation" deny  "await Promise.all([agent(p), agent(q, {model: 'sonnet'})])"
-  wfscript "template text with agent word" allow 'const t = `QEMU guest agent (qemu-ga)`; agent(p, {model: '"'haiku'"'})'
-  wfscript "string literal mentions call"  allow 'const t = "agent(prompt,{model,schema})"; agent(p, {model: '"'sonnet'"'})'
-  wfscript "shorthand model, more keys"    allow 'agent(p, { label, phase, model, schema })'
-  wfscript "shorthand model, alone"        allow 'agent(p, {model})'
+  wfscript "template text with agent word" allow 'const t = `QEMU guest agent (qemu-ga)`; agent(p, {model: '"'haiku'"', effort: '"'medium'"'})'
+  wfscript "string literal mentions call"  allow 'const t = "agent(prompt,{model,schema})"; agent(p, {model: '"'sonnet'"', effort: '"'medium'"'})'
+  wfscript "shorthand model, more keys"    allow 'agent(p, { label, phase, model, effort, schema })'
+  wfscript "shorthand model, alone"        allow 'agent(p, {model, effort: '"'medium'"'})'
   wfscript "model only in line comment"    deny  "agent(p, {label:'x'}) // model: haiku"
   wfscript "model only in block comment"   deny  "agent(p, {label:'x'}) /* model: haiku */"
   wfscript "model only in string argument" deny  "agent('choose a model: any', {label:'x'})"
-  wfscript "template with expression"      allow 'agent(p, {model: `${m}`})'
-  wfscript "model key in template expr"    allow 'agent(`x ${y}`, {model: '"'haiku'"'})'
+  wfscript "template with expression"      allow 'agent(p, {model: `${m}`, effort: '"'medium'"'})'
+  wfscript "model key in template expr"    allow 'agent(`x ${y}`, {model: '"'haiku'"', effort: '"'medium'"'})'
+  wfscript "model, no effort"              deny  "agent(p, {model: 'haiku'})"
+  wfscript "second call lacks effort"      deny  "agent(p, {model: 'haiku', effort: 'low'}); agent(q, {model: 'sonnet'})"
+  wfscript "effort only in line comment"   deny  "agent(p, {model: 'haiku'}) // effort: 'low'"
+  wfscript "effort only in block comment"  deny  "agent(p, {model: 'haiku'}) /* effort: 'low' */"
+  wfscript "effort only in string argument" deny "agent('use effort: high', {model: 'haiku'})"
+  wfscript "shorthand model and effort"    allow "agent(p, {model, effort})"
+  wfscript "shorthand among other keys"    allow "agent(p, { label, model, effort, schema })"
+  wfscript "model and effort on own lines" allow "agent(p, {
+ model: 'haiku',
+ effort: 'low'
+})"
+  wfscript "keys literal, values variables" allow "agent(p, {model: m, effort: e})"
+  printf "agent(p, {model: 'haiku'})" > "$tmp/noeffort.js"
+  out=$(printf '{"tool_input":{"scriptPath":"%s"}}' "$tmp/noeffort.js" | $wfguard 2>/dev/null)
+  check "no-effort reason names the rule" 1 "$(printf '%s' "$out" | grep -c 'names no effort')"
+  check "no-effort reason lists all levels" 1 "$(printf '%s' "$out" | grep -c 'low, medium, high, xhigh or max')"
   printf "agent(p, {label: 'a'})" > "$tmp/nomodel.js"
   reason=$(printf '{"tool_input":{"scriptPath":"%s"}}' "$tmp/nomodel.js" | $wfguard 2>/dev/null | grep -c 'write the model literally')
   check "deny reason names the rule" 1 "$reason"

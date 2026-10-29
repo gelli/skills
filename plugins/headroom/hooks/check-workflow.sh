@@ -4,9 +4,10 @@
 # model (`model: 'fable'`). The script comes from tool_input.script, or from
 # the file tool_input.scriptPath when script is empty. Named workflows and
 # scripts without such a model pass through. It also denies a script in which
-# any agent() call lacks a literal `model` option key (text in strings and
-# comments does not count). Unparseable input and an unreadable scriptPath are allowed with one
-# stderr line. Needs jq or python3; HEADROOM_PARSER=python3 forces the python3
+# any agent() call lacks a literal `model` option key, or a literal `effort`
+# option key (text in strings and comments does not count). A missing model
+# is reported before a missing effort. Unparseable input and an unreadable
+# scriptPath are allowed with one stderr line. Needs jq or python3; HEADROOM_PARSER=python3 forces the python3
 # path, HEADROOM_PARSER=none behaves as if neither is installed.
 set -u
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
@@ -74,8 +75,8 @@ if printf '%s' "$flat" | grep -Eiq "model[[:space:]]*:[[:space:]]*['\"\`][^'\"\`
 fi
 
 # Every agent() call (start of script or a non-identifier character before
-# it) needs `model` as an option key (`model:`, or the shorthand `model,` /
-# `model}`) before the next agent( call. The lexer first blanks the contents
+# it) needs `model` and `effort` as option keys (`model:`, or the shorthand
+# `model,` / `model}`; likewise `effort`) before the next agent( call. The lexer first blanks the contents
 # of '...', "..." and template literals (code inside ${...} stays) and drops
 # // and /* */ comments, so text in strings and comments counts for nothing.
 # Newlines travel as \001 so that // comments end at the right place.
@@ -111,23 +112,28 @@ missing=$(printf '%s' "$script" | tr '\n\r\t' '\001  ' | awk '
     return out
   }
   function seg_ok(t) { return t ~ /(^|[^A-Za-z0-9_$])model[ ]*[:,}]/ }
+  function seg_eff(t) { return t ~ /(^|[^A-Za-z0-9_$])effort[ ]*[:,}]/ }
   {
-    s = lex($0); gsub(/\001/, " ", s); bad = 0
+    s = lex($0); gsub(/\001/, " ", s); bad = 0; bade = 0
     pat = "(^|[^A-Za-z0-9_$])agent[ ]*[(]"
     if (!match(s, pat)) { print 0; exit }
     s = substr(s, RSTART + RLENGTH)
     while (1) {
       if (match(s, pat)) {
         if (!seg_ok(substr(s, 1, RSTART))) bad = 1
+        if (!seg_eff(substr(s, 1, RSTART))) bade = 1
         s = substr(s, RSTART + RLENGTH)
       } else {
         if (!seg_ok(s)) bad = 1
+        if (!seg_eff(s)) bade = 1
         break
       }
     }
-    print bad
+    print (bad ? 1 : (bade ? 2 : 0))
   }')
 if [ "$missing" = 1 ]; then
-  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"headroom: an agent() call in this workflow names no model, so it would run on the session model (or CLAUDE_CODE_SUBAGENT_MODEL, when set). Give every agent() call an explicit model (haiku, sonnet or opus); write the model literally in each call'"'"'s options, since this check cannot follow a model passed through a variable."}}'
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"headroom: an agent() call in this workflow names no model, so it would run on the session model (or CLAUDE_CODE_SUBAGENT_MODEL, when set). Give every agent() call an explicit model (haiku, sonnet or opus); write the model literally in each call'"'"'s options, since this check cannot follow a model passed through a variable. Each call also needs a literal effort (low, medium, high, xhigh or max)."}}'
+elif [ "$missing" = 2 ]; then
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"headroom: an agent() call in this workflow names no effort, so it would run at the session'"'"'s effort level. Give every agent() call an effort (low, medium, high, xhigh or max) chosen per the tiers, and write it literally in each call'"'"'s options, since this check cannot follow an effort passed through a variable."}}'
 fi
 exit 0
