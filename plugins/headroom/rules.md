@@ -14,12 +14,22 @@ Fable subagents and forks stay forbidden.
 
 ## Spawn at all?
 
-Delegate when the work is token-heavy (logs, repo-wide search, long reads), repetitive, or parallel. Do a single lookup, a read of a file you already know, or a one-file edit inline. Batch several same-shape small tasks into one spawn with one brief that lists every file.
+Delegate when the work is token-heavy (logs, repo-wide search, long reads), repetitive, or parallel. Do a single lookup, a read of a file you already know, or a one-file edit inline. Batch several same-shape small tasks into one spawn with one brief that lists every file. The hooks nudge once per prompt past 24 KB of reading or a third edited file.
+
+## Reading
+
+The main session reads only what it acts on next.
+
+- Send a lookup (where is it, what is it, list these, run this), a status or orientation question, and the gathering before a document built from several sources to `headroom:scout`.
+- Send the review of a large document to a Sonnet worker, with the acceptance criteria in the brief.
+- After a spawn, read only its report.
+- Read a long file by heading grep and line range.
 
 ## Tiers
 
 Every `Agent(...)` call passes `model` explicitly; an omitted model inherits the session model. `model: "fable"` and `subagent_type: "fork"` are never allowed (Fable is orchestrator-only; a fork inherits the parent model). The plugin's hook denies all three.
 
+- **haiku**, lookups: `headroom:scout` (Haiku) answers where, what, list and run-this questions.
 - **haiku** — mechanical or high-volume: builds, type checks, lint, tests, log parsing, repo-wide search, impact analysis, extraction, summarising. Implementation only when the brief already contains the literal code.
 - **sonnet** — the implementation floor: any task where the worker must design or infer something. Features from prose, tests, refactors, medium debugging, and every review except the mechanical single-file case. Turn count beats token price: Haiku takes two to three times the turns on multi-step work and costs more overall.
 - **opus** — only when all three hold: Sonnet would underperform, not merely "it's hard"; a written brief can carry everything the worker needs; isolation or parallelism pays (context-heavy exploration, several independent hard investigations, the final review). If only the first holds, do the work here.

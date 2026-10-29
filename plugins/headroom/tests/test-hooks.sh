@@ -250,6 +250,9 @@ echo "injector"
 out=$(CLAUDE_PLUGIN_ROOT="$root" "$inject" </dev/null)
 case "$out" in "<headroom>"*"</headroom>") echo "  ok    wrapped in <headroom> tags" ;; *) echo "  FAIL  tag wrapping"; fail=1 ;; esac
 case "$out" in *"# Headroom"*) echo "  ok    contains rules.md" ;; *) echo "  FAIL  rules.md missing"; fail=1 ;; esac
+case "$out" in *"## Reading"*) echo "  ok    rules has ## Reading" ;; *) echo "  FAIL  ## Reading missing"; fail=1 ;; esac
+case "$out" in *"headroom:scout"*) echo "  ok    rules names headroom:scout" ;; *) echo "  FAIL  headroom:scout missing"; fail=1 ;; esac
+case "$out" in *"Agent and Workflow"*) echo "  ok    preface names Agent and Workflow checks" ;; *) echo "  FAIL  preface lacks Agent and Workflow"; fail=1 ;; esac
 check "empty plugin root prints nothing" "" "$(CLAUDE_PLUGIN_ROOT=/nonexistent "$inject" </dev/null)"
 
 [ $fail -eq 0 ] && echo "all hook tests passed" || { echo "hook tests FAILED"; exit 1; }
