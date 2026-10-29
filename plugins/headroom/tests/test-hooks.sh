@@ -56,6 +56,12 @@ run_matrix() { # label
   check "headroom:scout, haiku, medium" allow "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":"haiku","effort":"medium"}}')"
   check "headroom:scout, model fable" deny "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":"fable"}}')"
   check "general-purpose, no model" deny  "$(decision '{"tool_input":{"subagent_type":"general-purpose"}}')"
+  check "effort is a number"        deny  "$(decision '{"tool_input":{"model":"sonnet","effort":5}}')"
+  check "fork, effort is a number"  deny  "$(decision '{"tool_input":{"subagent_type":"fork","effort":5}}')"
+  check "effort is an array"        deny  "$(decision '{"tool_input":{"effort":["x"]}}')"
+  check "effort is an object"       deny  "$(decision '{"tool_input":{"model":"sonnet","effort":{"a":1}}}')"
+  check "effort with newline"       deny  "$(decision '{"tool_input":{"model":"sonnet","effort":"high\nx"}}')"
+  check "model with newline"        deny  "$(decision '{"tool_input":{"model":"sonnet\nhigh"}}')"
   check "unparseable input"         allow "$(decision 'not json')"
   check "empty input"               allow "$(decision '')"
 }

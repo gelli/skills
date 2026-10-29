@@ -29,7 +29,8 @@ fi
 case "$parser" in
   jq)
     fields=$(printf '%s' "$input" | jq -r '
-      "parsed\n" + (.tool_input.subagent_type // "") + "\n" + (.tool_input.model // "") + "\n" + (.tool_input.effort // "")' 2>/dev/null)
+      def f(k): ((.tool_input[k] // "") | tostring | gsub("[\r\n]"; " "));
+      "parsed\n" + f("subagent_type") + "\n" + f("model") + "\n" + f("effort")' 2>/dev/null)
     ;;
   python3)
     fields=$(printf '%s' "$input" | python3 -c '
@@ -39,9 +40,8 @@ try:
 except Exception:
     sys.exit(1)
 print("parsed")
-print(t.get("subagent_type") or "")
-print(t.get("model") or "")
-print(t.get("effort") or "")' 2>/dev/null)
+for k in ("subagent_type", "model", "effort"):
+    print(str(t.get(k) or "").replace("\r", " ").replace("\n", " "))' 2>/dev/null)
     ;;
   *)
     echo "headroom: neither jq nor python3 found; Agent model check skipped" >&2
