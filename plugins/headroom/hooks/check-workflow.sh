@@ -4,7 +4,8 @@
 # model (`model: 'fable'`). The script comes from tool_input.script, or from
 # the file tool_input.scriptPath when script is empty. Named workflows and
 # scripts without such a model pass through. It also denies a script in which
-# any agent() call lacks a literal `model:` in its options. Unparseable input is allowed.
+# any agent() call lacks a literal `model` option key (text in strings and
+# comments does not count). Unparseable input is allowed.
 # Needs jq or python3; HEADROOM_PARSER=python3 forces the python3 path.
 set -u
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
@@ -47,12 +48,46 @@ if printf '%s' "$flat" | grep -Eiq "model[[:space:]]*:[[:space:]]*['\"\`][^'\"\`
 fi
 
 # Every agent() call (start of script or a non-identifier character before
-# it) needs `model:` before the next agent( call.
-missing=$(printf '%s' "$flat" | awk '
-  function seg_ok(t) { return t ~ /model[[:space:]]*:/ }
+# it) needs `model` as an option key (`model:`, or the shorthand `model,` /
+# `model}`) before the next agent( call. The lexer first blanks the contents
+# of '...', "..." and template literals (code inside ${...} stays) and drops
+# // and /* */ comments, so text in strings and comments counts for nothing.
+# Newlines travel as \001 so that // comments end at the right place.
+missing=$(printf '%s' "$script" | tr '\n\r\t' '\001  ' | awk '
+  function lex(s,    n, i, c, d, mode, out, sp, bd) {
+    n = length(s); mode = "code"; out = ""; sp = 0
+    for (i = 1; i <= n; i++) {
+      c = substr(s, i, 1); d = substr(s, i + 1, 1)
+      if (mode == "code") {
+        if (c == "\047") { mode = "sq"; out = out c }
+        else if (c == "\042") { mode = "dq"; out = out c }
+        else if (c == "`") { mode = "tpl"; out = out c }
+        else if (c == "/" && d == "/") { mode = "line"; i++; out = out " " }
+        else if (c == "/" && d == "*") { mode = "block"; i++; out = out " " }
+        else if (c == "{") { if (sp > 0) bd[sp]++; out = out c }
+        else if (c == "}") {
+          if (sp > 0 && bd[sp] == 0) { sp--; mode = "tpl"; out = out " " }
+          else { if (sp > 0) bd[sp]--; out = out c }
+        }
+        else out = out c
+      } else if (mode == "sq" || mode == "dq" || mode == "tpl") {
+        if (c == "\\") i++
+        else if (mode == "sq" && c == "\047") { mode = "code"; out = out c }
+        else if (mode == "dq" && c == "\042") { mode = "code"; out = out c }
+        else if (mode == "tpl" && c == "`") { mode = "code"; out = out c }
+        else if (mode == "tpl" && c == "$" && d == "{") { sp++; bd[sp] = 0; mode = "code"; i++; out = out " " }
+      } else if (mode == "line") {
+        if (c == "\001") { mode = "code"; out = out " " }
+      } else if (mode == "block") {
+        if (c == "*" && d == "/") { mode = "code"; i++; out = out " " }
+      }
+    }
+    return out
+  }
+  function seg_ok(t) { return t ~ /(^|[^A-Za-z0-9_$])model[ ]*[:,}]/ }
   {
-    s = $0; bad = 0
-    pat = "(^|[^A-Za-z0-9_$])agent[[:space:]]*[(]"
+    s = lex($0); gsub(/\001/, " ", s); bad = 0
+    pat = "(^|[^A-Za-z0-9_$])agent[ ]*[(]"
     if (!match(s, pat)) { print 0; exit }
     s = substr(s, RSTART + RLENGTH)
     while (1) {

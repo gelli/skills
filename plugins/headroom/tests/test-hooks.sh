@@ -98,6 +98,15 @@ workflow_matrix() { # label
   wfscript "no agent call"           allow "const x = 1; log(x)"
   wfscript "reagent without model"   allow "reagent(p, {label: 'a'})"
   wfscript "agent after punctuation" deny  "await Promise.all([agent(p), agent(q, {model: 'sonnet'})])"
+  wfscript "template text with agent word" allow 'const t = `QEMU guest agent (qemu-ga)`; agent(p, {model: '"'haiku'"'})'
+  wfscript "string literal mentions call"  allow 'const t = "agent(prompt,{model,schema})"; agent(p, {model: '"'sonnet'"'})'
+  wfscript "shorthand model, more keys"    allow 'agent(p, { label, phase, model, schema })'
+  wfscript "shorthand model, alone"        allow 'agent(p, {model})'
+  wfscript "model only in line comment"    deny  "agent(p, {label:'x'}) // model: haiku"
+  wfscript "model only in block comment"   deny  "agent(p, {label:'x'}) /* model: haiku */"
+  wfscript "model only in string argument" deny  "agent('choose a model: any', {label:'x'})"
+  wfscript "template with expression"      allow 'agent(p, {model: `${m}`})'
+  wfscript "model key in template expr"    allow 'agent(`x ${y}`, {model: '"'haiku'"'})'
   printf "agent(p, {label: 'a'})" > "$tmp/nomodel.js"
   reason=$(printf '{"tool_input":{"scriptPath":"%s"}}' "$tmp/nomodel.js" | "$wfguard" 2>/dev/null | grep -c 'write the model literally')
   check "deny reason names the rule" 1 "$reason"
