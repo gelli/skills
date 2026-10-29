@@ -5,38 +5,64 @@
 # the file tool_input.scriptPath when script is empty. Named workflows and
 # scripts without such a model pass through. It also denies a script in which
 # any agent() call lacks a literal `model` option key (text in strings and
-# comments does not count). Unparseable input is allowed.
-# Needs jq or python3; HEADROOM_PARSER=python3 forces the python3 path.
+# comments does not count). Unparseable input and an unreadable scriptPath are allowed with one
+# stderr line. Needs jq or python3; HEADROOM_PARSER=python3 forces the python3
+# path, HEADROOM_PARSER=none behaves as if neither is installed.
 set -u
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
 input=$(cat 2>/dev/null || true)
 
-if [ "${HEADROOM_PARSER:-auto}" != python3 ] && command -v jq >/dev/null 2>&1; then
-  script=$(printf '%s' "$input" | jq -r '.tool_input.script // ""' 2>/dev/null) || exit 0
-  path=$(printf '%s' "$input" | jq -r '.tool_input.scriptPath // ""' 2>/dev/null) || exit 0
+parser=none
+if [ "${HEADROOM_PARSER:-auto}" = none ]; then
+  parser=none
+elif [ "${HEADROOM_PARSER:-auto}" != python3 ] && command -v jq >/dev/null 2>&1; then
+  parser=jq
 elif command -v python3 >/dev/null 2>&1; then
-  script=$(printf '%s' "$input" | python3 -c '
-import json, sys
-try:
-    t = json.load(sys.stdin).get("tool_input") or {}
-except Exception:
-    sys.exit(1)
-sys.stdout.write(t.get("script") or "")' 2>/dev/null) || exit 0
-  path=$(printf '%s' "$input" | python3 -c '
-import json, sys
-try:
-    t = json.load(sys.stdin).get("tool_input") or {}
-except Exception:
-    sys.exit(1)
-sys.stdout.write(t.get("scriptPath") or "")' 2>/dev/null) || exit 0
-else
-  echo "headroom: neither jq nor python3 found; Workflow model check skipped" >&2
-  exit 0
+  parser=python3
 fi
 
-if [ -z "$script" ] && [ -n "$path" ] && [ -f "$path" ]; then
-  script=$(cat "$path" 2>/dev/null || true)
+# Line 1 "parsed", line 2 scriptPath, the rest is the inline script.
+case "$parser" in
+  jq)
+    fields=$(printf '%s' "$input" | jq -r '
+      "parsed",
+      ((.tool_input.scriptPath // "") | tostring | gsub("[\r\n]"; " ")),
+      ((.tool_input.script // "") | tostring)' 2>/dev/null)
+    ;;
+  python3)
+    fields=$(printf '%s' "$input" | python3 -c '
+import json, sys
+try:
+    t = json.load(sys.stdin).get("tool_input") or {}
+except Exception:
+    sys.exit(1)
+if not isinstance(t, dict):
+    sys.exit(1)
+print("parsed")
+print(str(t.get("scriptPath") or "").replace("\r", " ").replace("\n", " "))
+sys.stdout.write(str(t.get("script") or ""))' 2>/dev/null)
+    ;;
+  *)
+    echo "headroom: neither jq nor python3 found; Workflow model check skipped" >&2
+    exit 0
+    ;;
+esac
+
+if [ "$(printf '%s\n' "$fields" | sed -n 1p)" != parsed ]; then
+  echo "headroom: could not parse hook input; Workflow model check skipped" >&2
+  exit 0
+fi
+path=$(printf '%s\n' "$fields" | sed -n 2p)
+script=$(printf '%s\n' "$fields" | sed -n '3,$p')
+
+if [ -z "$script" ] && [ -n "$path" ]; then
+  if [ -f "$path" ] && script=$(cat "$path" 2>/dev/null); then
+    :
+  else
+    echo "headroom: cannot read scriptPath $path; Workflow model check skipped" >&2
+    exit 0
+  fi
 fi
 [ -z "$script" ] && exit 0
 

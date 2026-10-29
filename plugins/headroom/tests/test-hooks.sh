@@ -5,9 +5,11 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/.." && pwd)
-guard="$root/hooks/check-agent.sh"
-inject="$root/hooks/inject-rules.sh"
-wfguard="$root/hooks/check-workflow.sh"
+# HEADROOM_TEST_SH=dash runs every hook through that shell.
+runner=${HEADROOM_TEST_SH:-}
+guard="$runner $root/hooks/check-agent.sh"
+inject="$runner $root/hooks/inject-rules.sh"
+wfguard="$runner $root/hooks/check-workflow.sh"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 fail=0
@@ -18,7 +20,7 @@ check() { # label expected actual
 
 # decision <json> -> allow | deny | skip (stderr note, no stdout)
 decision() {
-  out=$(printf '%s' "$1" | "$guard" 2>/dev/null)
+  out=$(printf '%s' "$1" | $guard 2>/dev/null)
   case "$out" in
     "") printf 'allow' ;;
     *'"permissionDecision":"deny"'*) printf 'deny' ;;
@@ -49,7 +51,7 @@ run_matrix() { # label
 if command -v jq >/dev/null 2>&1; then
   run_matrix "guard via jq"
   echo "  deny output is valid JSON with a reason:"
-  reason=$(printf '{"tool_input":{}}' | "$guard" | jq -r '.hookSpecificOutput.permissionDecisionReason' 2>/dev/null)
+  reason=$(printf '{"tool_input":{}}' | $guard | jq -r '.hookSpecificOutput.permissionDecisionReason' 2>/dev/null)
   case "$reason" in "headroom:"*) echo "  ok    reason text" ;; *) echo "  FAIL  reason text: '$reason'"; fail=1 ;; esac
 else
   echo "jq not installed; skipping jq path"
@@ -58,14 +60,14 @@ fi
 if command -v python3 >/dev/null 2>&1; then
   HEADROOM_PARSER=python3 run_matrix "guard via python3"
   echo "  python3 path really parses:"
-  out=$(printf '{"tool_input":{"model":"opus"}}' | HEADROOM_PARSER=python3 "$guard" 2>&1)
+  out=$(printf '{"tool_input":{"model":"opus"}}' | HEADROOM_PARSER=python3 $guard 2>&1)
   check "no parse-failure note on stderr" "" "$out"
 else
   echo "python3 not installed; skipping python3 path"
 fi
 
 wf_decision() { # <json> -> allow | deny | other
-  out=$(printf '%s' "$1" | "$wfguard" 2>/dev/null)
+  out=$(printf '%s' "$1" | $wfguard 2>/dev/null)
   case "$out" in
     "") printf 'allow' ;;
     *'"permissionDecision":"deny"'*) printf 'deny' ;;
@@ -108,7 +110,7 @@ workflow_matrix() { # label
   wfscript "template with expression"      allow 'agent(p, {model: `${m}`})'
   wfscript "model key in template expr"    allow 'agent(`x ${y}`, {model: '"'haiku'"'})'
   printf "agent(p, {label: 'a'})" > "$tmp/nomodel.js"
-  reason=$(printf '{"tool_input":{"scriptPath":"%s"}}' "$tmp/nomodel.js" | "$wfguard" 2>/dev/null | grep -c 'write the model literally')
+  reason=$(printf '{"tool_input":{"scriptPath":"%s"}}' "$tmp/nomodel.js" | $wfguard 2>/dev/null | grep -c 'write the model literally')
   check "deny reason names the rule" 1 "$reason"
 }
 
@@ -119,7 +121,7 @@ if command -v python3 >/dev/null 2>&1; then
   HEADROOM_PARSER=python3 workflow_matrix "workflow guard via python3"
 fi
 
-budget="$root/hooks/budget.sh"
+budget="$runner $root/hooks/budget.sh"
 
 blob() { head -c "$1" /dev/zero | tr '\0' 'a'; }
 
@@ -133,7 +135,7 @@ bjson() {
 
 # bout <json> -> nudge | quiet (data dir from $BD)
 bout() {
-  out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$BD" "$budget" 2>/dev/null)
+  out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$BD" $budget 2>/dev/null)
   case "$out" in
     "") printf 'quiet' ;;
     *'"hookEventName":"PostToolUse"'*'headroom:scout'*) printf 'nudge' ;;
@@ -151,7 +153,7 @@ ejson() {
 
 # eout <json> -> edit | quiet | other (data dir from $BD)
 eout() {
-  out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$BD" "$budget" 2>/dev/null)
+  out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$BD" $budget 2>/dev/null)
   case "$out" in
     "") printf 'quiet' ;;
     *'"hookEventName":"PostToolUse"'*'general-purpose'*'sonnet'*) printf 'edit' ;;
@@ -251,17 +253,98 @@ if command -v python3 >/dev/null 2>&1; then
   HEADROOM_PARSER=python3 budget_matrix "budget via python3"
 fi
 echo "budget without a parser"
-err=$(printf '%s' "$(bjson Read 30000)" | HEADROOM_PARSER=none CLAUDE_PLUGIN_DATA="$tmp" "$budget" 2>&1 >/dev/null); rc=$?
+err=$(printf '%s' "$(bjson Read 30000)" | HEADROOM_PARSER=none CLAUDE_PLUGIN_DATA="$tmp" $budget 2>&1 >/dev/null); rc=$?
 check "parser none exits 0" 0 "$rc"
 check "parser none: one stderr line" 1 "$(printf '%s\n' "$err" | grep -c .)"
 
+# secs <cmd...> -> elapsed whole milliseconds (python3 timer)
+millis() {
+  python3 -c 'import subprocess,sys,time
+t=time.time(); subprocess.run(sys.argv[1:],stdin=open(sys.stdin.fileno(),closefd=False),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); print(int((time.time()-t)*1000))' "$@"
+}
+
+hardening_matrix() { # label
+  echo "$1"
+  # Stale lock (older than 10 s) is removed and counting resumes.
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  mkdir "$BD/budget-s1.lock"; touch -t 202001010000 "$BD/budget-s1.lock"
+  check "stale lock: nudge fires" nudge "$(HEADROOM_READ_BUDGET=1000 bout "$(bjson Read 1500)")"
+  check "stale lock: removed" 0 "$(ls "$BD" | grep -c lock)"
+  # Fresh lock held past the retry window: exit 0, one stderr line.
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  mkdir "$BD/budget-s1.lock"
+  err=$(bjson Read 30000 | CLAUDE_PLUGIN_DATA="$BD" $budget 2>&1 >/dev/null); rc=$?
+  check "busy lock: exit 0" 0 "$rc"
+  check "busy lock: one headroom line" 1 "$(printf '%s\n' "$err" | grep -c '^headroom:')"
+  check "busy lock: no extra lines" 1 "$(printf '%s\n' "$err" | grep -c .)"
+  # Unwritable data folder: exit 0, one stderr line, fast.
+  if [ "$(id -u)" -ne 0 ]; then
+    BD=$(mktemp -d "$tmp/bd.XXXXXX"); chmod 500 "$BD"
+    err=$(bjson Read 30000 | CLAUDE_PLUGIN_DATA="$BD" $budget 2>&1 >/dev/null); rc=$?
+    check "unwritable dir: exit 0" 0 "$rc"
+    check "unwritable dir: one headroom line" 1 "$(printf '%s\n' "$err" | grep -c '^headroom:')"
+    bjson Read 30000 > "$tmp/in.json"
+    ms=$(CLAUDE_PLUGIN_DATA="$BD" millis $budget < "$tmp/in.json")
+    [ "$ms" -lt 500 ] && r=fast || r="slow ${ms}ms"
+    check "unwritable dir: under 0.5 s" fast "$r"
+    chmod 700 "$BD"
+  fi
+  # prompt_id with a newline is sanitised and still counts.
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "newline in prompt_id counts" nudge "$(bout "$(bjson Read 30000 | sed 's/"p1"/"p\\n1"/')")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "newline in session_id counts" nudge "$(bout "$(bjson Read 30000 | sed 's/"s1"/"s\\n1"/')")"
+  # 2 MB of Bash stdout counts its bytes and finishes fast.
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  bjson Bash 2000000 > "$tmp/big.json"
+  out=$(CLAUDE_PLUGIN_DATA="$BD" $budget < "$tmp/big.json" 2>/dev/null)
+  case "$out" in *'headroom:scout'*) r=nudge ;; *) r=quiet ;; esac
+  check "2 MB stdout nudges" nudge "$r"
+  check "2 MB stdout counted" 2000000 "$(sed -n 's/^read_bytes=//p' "$BD/budget-s1")"
+  ms=$(CLAUDE_PLUGIN_DATA="$BD" millis $budget < "$tmp/big.json")
+  [ "$ms" -lt 1000 ] && r=fast || r="slow ${ms}ms"
+  check "2 MB stdout under 1 s" fast "$r"
+  # Multi-byte output counts bytes, not characters.
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  bout '{"session_id":"s1","prompt_id":"p1","tool_name":"Bash","tool_response":{"stdout":"äöü","stderr":""}}' >/dev/null
+  check "utf-8 counts bytes" 6 "$(sed -n 's/^read_bytes=//p' "$BD/budget-s1")"
+  # Checks honour HEADROOM_PARSER=none and report parse failures once.
+  for g in "$guard" "$wfguard"; do
+    err=$(printf '{"tool_input":{}}' | HEADROOM_PARSER=none $g 2>&1 >/dev/null); rc=$?
+    out=$(printf '{"tool_input":{}}' | HEADROOM_PARSER=none $g 2>/dev/null)
+    check "parser none: exit 0 ($(basename "${g##* }"))" 0 "$rc"
+    check "parser none: no stdout ($(basename "${g##* }"))" "" "$out"
+    check "parser none: one stderr line ($(basename "${g##* }"))" 1 "$(printf '%s\n' "$err" | grep -c '^headroom:')"
+    err=$(printf 'not json' | $g 2>&1 >/dev/null)
+    out=$(printf 'not json' | $g 2>/dev/null)
+    check "not json: allow ($(basename "${g##* }"))" "" "$out"
+    check "not json: one stderr line ($(basename "${g##* }"))" 1 "$(printf '%s\n' "$err" | grep -c '^headroom:')"
+  done
+  err=$(printf '{"tool_input":{"scriptPath":"%s/missing.js"}}' "$tmp" | $wfguard 2>&1 >/dev/null)
+  out=$(printf '{"tool_input":{"scriptPath":"%s/missing.js"}}' "$tmp" | $wfguard 2>/dev/null)
+  check "missing scriptPath: allow" "" "$out"
+  check "missing scriptPath: one stderr line" 1 "$(printf '%s\n' "$err" | grep -c '^headroom:')"
+}
+
+if command -v jq >/dev/null 2>&1; then
+  hardening_matrix "hardening via jq"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  HEADROOM_PARSER=python3 hardening_matrix "hardening via python3"
+fi
+
+echo "hooks.json matcher"
+want='^(Read|Bash|Grep|Glob|WebFetch|WebSearch|Edit|Write|NotebookEdit)$|^mcp__'
+got=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["hooks"]["PostToolUse"][0]["matcher"])' "$root/hooks/hooks.json" 2>/dev/null)
+check "PostToolUse matcher is anchored" "$want" "$got"
+
 echo "injector"
-out=$(CLAUDE_PLUGIN_ROOT="$root" "$inject" </dev/null)
+out=$(CLAUDE_PLUGIN_ROOT="$root" $inject </dev/null)
 case "$out" in "<headroom>"*"</headroom>") echo "  ok    wrapped in <headroom> tags" ;; *) echo "  FAIL  tag wrapping"; fail=1 ;; esac
 case "$out" in *"# Headroom"*) echo "  ok    contains rules.md" ;; *) echo "  FAIL  rules.md missing"; fail=1 ;; esac
 case "$out" in *"## Reading"*) echo "  ok    rules has ## Reading" ;; *) echo "  FAIL  ## Reading missing"; fail=1 ;; esac
 case "$out" in *"headroom:scout"*) echo "  ok    rules names headroom:scout" ;; *) echo "  FAIL  headroom:scout missing"; fail=1 ;; esac
 case "$out" in *"Agent and Workflow"*) echo "  ok    preface names Agent and Workflow checks" ;; *) echo "  FAIL  preface lacks Agent and Workflow"; fail=1 ;; esac
-check "empty plugin root prints nothing" "" "$(CLAUDE_PLUGIN_ROOT=/nonexistent "$inject" </dev/null)"
+check "empty plugin root prints nothing" "" "$(CLAUDE_PLUGIN_ROOT=/nonexistent $inject </dev/null)"
 
 [ $fail -eq 0 ] && echo "all hook tests passed" || { echo "hook tests FAILED"; exit 1; }

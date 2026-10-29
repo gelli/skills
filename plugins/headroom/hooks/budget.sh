@@ -1,6 +1,6 @@
 #!/bin/sh
-# headroom PostToolUse hook for Read|Bash|Grep|Glob|WebFetch|WebSearch|
-# mcp__.*|Edit|Write|NotebookEdit. Two budgets per prompt, each nudging once:
+# headroom PostToolUse hook for Read, Bash, Grep, Glob, WebFetch, WebSearch,
+# Edit, Write, NotebookEdit and every mcp__ tool (anchored matcher). Two budgets per prompt, each nudging once:
 # - reading: counts the bytes of tool output the main session took in since
 #   the last prompt and, once the total passes the reading budget, nudges
 #   toward headroom:scout.
@@ -10,6 +10,7 @@
 # Edit tools add nothing to the reading bytes.
 #
 # Size measures what the model actually saw:
+# The parser counts the bytes (UTF-8) and hands the hook one number.
 # - Bash: stdout + stderr, zero when tool_response.persistedOutputPath is set
 #   (the model sees only a ~2KB preview of persisted output).
 # - Read: tool_response.file.content.
@@ -18,8 +19,9 @@
 #
 # State: ${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/headroom}/budget-<session_id>
 # holds prompt_id, read_bytes, read_nudged, edit_nudged and edited_files (one
-# path per line, last); a new prompt_id resets all of them. Updates run under a mkdir lock (20 tries, 0.05 s apart); when the
-# lock stays busy the call is not counted.
+# path per line, last); a new prompt_id resets all of them. Updates run under a mkdir lock (20 tries, 0.05 s apart; a lock
+# older than 10 s is removed). When the lock stays busy, or the data folder is
+# not writable, the call is not counted and one stderr line says so.
 # Budgets: HEADROOM_READ_BUDGET bytes (default 24576, about 6k tokens) and
 # HEADROOM_EDIT_BUDGET distinct files (default 3); 0 turns a nudge off.
 # Parses hook input with jq, falling back to python3. HEADROOM_PARSER=python3
@@ -47,41 +49,41 @@ fi
 
 case "$parser" in
   jq)
+    # Line 1 "parsed", then session_id, prompt_id, worker flag, counted bytes,
+    # tool name, edited path. The ids are cut to [A-Za-z0-9_-] here so that a
+    # stray newline cannot shift the lines.
     fields=$(printf '%s' "$input" | jq -r '
-      "parsed",
-      (.session_id // ""),
-      (.prompt_id // ""),
-      (.agent_id // ""),
-      (if (.tool_name // "") == "Bash" and (.tool_response.persistedOutputPath // null) != null then "skip" else "" end),
-      (.tool_name // ""),
-      (if (.tool_name // "") == "NotebookEdit" then (.tool_input.notebook_path // "") else (.tool_input.file_path // "") end | gsub("[\r\n]"; " ")),
-      (
-        if ((.tool_name // "") | IN("Edit", "Write", "NotebookEdit")) then
-          ""
-        elif (.tool_name // "") == "Bash" then
-          (.tool_response.stdout // "") + (.tool_response.stderr // "")
-        elif (.tool_name // "") == "Read" then
-          (.tool_response.file.content // "")
-        else
-          (.tool_response | tojson)
-        end
-      )' 2>/dev/null)
+      def id: (. // "") | tostring | gsub("[^A-Za-z0-9_-]"; "");
+      (.tool_name // "") as $t
+      | (if $t == "Bash" and (.tool_response.persistedOutputPath // null) != null then 0
+         elif ($t | IN("Edit", "Write", "NotebookEdit")) then 0
+         elif $t == "Bash" then (((.tool_response.stdout // "") + (.tool_response.stderr // "")) | utf8bytelength)
+         elif $t == "Read" then ((.tool_response.file.content // "") | utf8bytelength)
+         else (.tool_response | tojson | utf8bytelength) end) as $n
+      | "parsed",
+        (.session_id | id),
+        (.prompt_id | id),
+        (if (.agent_id // "") != "" then "w" else "" end),
+        $n,
+        $t,
+        ((if $t == "NotebookEdit" then (.tool_input.notebook_path // "") else (.tool_input.file_path // "") end) | tostring | gsub("[\r\n]"; " "))' 2>/dev/null)
     rc=$?
     ;;
   python3)
     fields=$(printf '%s' "$input" | python3 -c '
-import json, sys
+import json, re, sys
 try:
     d = json.load(sys.stdin)
 except Exception:
     sys.exit(1)
 if not isinstance(d, dict):
     sys.exit(1)
+def ident(v):
+    return re.sub(r"[^A-Za-z0-9_-]", "", str(v or ""))
 name = d.get("tool_name") or ""
 tr = d.get("tool_response")
 if not isinstance(tr, dict):
     tr = {}
-skip = ""
 ti = d.get("tool_input")
 if not isinstance(ti, dict):
     ti = {}
@@ -90,45 +92,43 @@ if not isinstance(path, str):
     path = ""
 path = path.replace("\r", " ").replace("\n", " ")
 if name in ("Edit", "Write", "NotebookEdit"):
-    measured = ""
+    n = 0
 elif name == "Bash":
     if tr.get("persistedOutputPath") is not None:
-        skip = "skip"
-    measured = (tr.get("stdout") or "") + (tr.get("stderr") or "")
+        n = 0
+    else:
+        n = len(((tr.get("stdout") or "") + (tr.get("stderr") or "")).encode("utf-8"))
 elif name == "Read":
-    measured = (tr.get("file") or {}).get("content") or ""
+    n = len(((tr.get("file") or {}).get("content") or "").encode("utf-8"))
 else:
-    measured = json.dumps(d.get("tool_response"), separators=(",", ":"), ensure_ascii=False)
+    n = len(json.dumps(d.get("tool_response"), separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
 print("parsed")
-print(d.get("session_id") or "")
-print(d.get("prompt_id") or "")
-print(d.get("agent_id") or "")
-print(skip)
+print(ident(d.get("session_id")))
+print(ident(d.get("prompt_id")))
+print("w" if d.get("agent_id") else "")
+print(n)
 print(name)
-print(path)
-sys.stdout.flush()
-sys.stdout.buffer.write(measured.encode("utf-8"))
-sys.stdout.buffer.write(b"\n")' 2>/dev/null)
+print(path)' 2>/dev/null)
     rc=$?
     ;;
   *)
-    echo "headroom: neither jq nor python3 found; reading budget skipped" >&2
+    echo "headroom: neither jq nor python3 found; budget skipped" >&2
     exit 0
     ;;
 esac
 
 if [ $rc -ne 0 ] || [ "$(printf '%s\n' "$fields" | sed -n 1p)" != parsed ]; then
-  echo "headroom: could not parse hook input; reading budget skipped" >&2
+  echo "headroom: could not parse hook input; budget skipped" >&2
   exit 0
 fi
 
 session_id=$(printf '%s\n' "$fields" | sed -n 2p | tr -cd 'A-Za-z0-9_-')
-prompt_id=$(printf '%s\n' "$fields" | sed -n 3p)
+prompt_id=$(printf '%s\n' "$fields" | sed -n 3p | tr -cd 'A-Za-z0-9_-')
 agent_id=$(printf '%s\n' "$fields" | sed -n 4p)
-skip=$(printf '%s\n' "$fields" | sed -n 5p)
+size=$(printf '%s\n' "$fields" | sed -n 5p)
 tool=$(printf '%s\n' "$fields" | sed -n 6p)
 epath=$(printf '%s\n' "$fields" | sed -n 7p)
-measured=$(printf '%s\n' "$fields" | sed -n '8,$p')
+case "$size" in ''|*[!0-9]*) size=0 ;; esac
 case "$tool" in Edit|Write|NotebookEdit) is_edit=1 ;; *) is_edit=0 ;; esac
 
 [ -z "$agent_id" ] || exit 0
@@ -140,29 +140,52 @@ else
   [ "$budget" -gt 0 ] || exit 0
 fi
 
-size=0
-if [ "$skip" != skip ]; then
-  size=$(printf '%s' "$measured" | wc -c | tr -d '[:space:]')
-fi
-
 dir=${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/headroom}
-mkdir -p "$dir" 2>/dev/null || exit 0
+if ! mkdir -p "$dir" 2>/dev/null || [ ! -w "$dir" ]; then
+  echo "headroom: data folder $dir is not writable; budget skipped" >&2
+  exit 0
+fi
 state="$dir/budget-$session_id"
 lock="$state.lock"
 
+# mtime of a path in epoch seconds (GNU stat, then BSD stat).
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+
 tries=0
 until mkdir "$lock" 2>/dev/null; do
+  m=$(mtime "$lock")
+  case "$m" in
+    ''|*[!0-9]*) ;;
+    *) if [ $(( $(date +%s) - m )) -gt 10 ]; then rmdir "$lock" 2>/dev/null; continue; fi ;;
+  esac
   tries=$((tries + 1))
-  [ "$tries" -lt 20 ] || exit 0
+  if [ "$tries" -ge 20 ]; then
+    echo "headroom: budget lock busy; call not counted" >&2
+    exit 0
+  fi
   sleep 0.05
 done
 trap 'rmdir "$lock" 2>/dev/null' EXIT
 
-old_prompt=$(sed -n 's/^prompt_id=//p' "$state" 2>/dev/null | sed -n 1p)
-read_bytes=$(sed -n 's/^read_bytes=//p' "$state" 2>/dev/null | sed -n 1p)
-nudged=$(sed -n 's/^read_nudged=//p' "$state" 2>/dev/null | sed -n 1p)
-edit_nudged=$(sed -n 's/^edit_nudged=//p' "$state" 2>/dev/null | sed -n 1p)
-edited=$(sed -n 's/^edited_files=//p' "$state" 2>/dev/null)
+old_prompt=
+read_bytes=
+nudged=
+edit_nudged=
+edited=
+if [ -f "$state" ]; then
+  while IFS= read -r line; do
+    case "$line" in
+      prompt_id=*) old_prompt=${line#prompt_id=} ;;
+      read_bytes=*) read_bytes=${line#read_bytes=} ;;
+      read_nudged=*) nudged=${line#read_nudged=} ;;
+      edit_nudged=*) edit_nudged=${line#edit_nudged=} ;;
+      edited_files=*)
+        p=${line#edited_files=}
+        if [ -n "$edited" ]; then edited="$edited
+$p"; else edited=$p; fi ;;
+    esac
+  done < "$state"
+fi
 case "$read_bytes" in ''|*[!0-9]*) read_bytes=0 ;; esac
 case "$nudged" in 1) ;; *) nudged=0 ;; esac
 case "$edit_nudged" in 1) ;; *) edit_nudged=0 ;; esac

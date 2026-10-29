@@ -15,7 +15,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Read|Bash|Grep|Glob|WebFetch|WebSearch|mcp__.*|Edit|Write|NotebookEdit",
+        "matcher": "^(Read|Bash|Grep|Glob|WebFetch|WebSearch|Edit|Write|NotebookEdit)$|^mcp__",
         "hooks": [
           {
             "type": "command",
