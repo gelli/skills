@@ -36,12 +36,24 @@ run_matrix() { # label
   check "model in prompt text only" deny  "$(decision '{"tool_input":{"prompt":"model: haiku","subagent_type":"general-purpose"}}')"
   check "model fable"               deny  "$(decision '{"tool_input":{"model":"fable"}}')"
   check "fork with model"           deny  "$(decision '{"tool_input":{"subagent_type":"fork","model":"sonnet"}}')"
-  check "model haiku"               allow "$(decision '{"tool_input":{"model":"haiku"}}')"
-  check "model sonnet"              allow "$(decision '{"tool_input":{"model":"sonnet","subagent_type":"browser-scout"}}')"
-  check "model opus"                allow "$(decision '{"tool_input":{"model":"opus"}}')"
+  check "model fable with effort"   deny  "$(decision '{"tool_input":{"model":"fable","effort":"low"}}')"
+  check "fork with effort"          deny  "$(decision '{"tool_input":{"subagent_type":"fork","model":"sonnet","effort":"low"}}')"
+  check "effort only, no model"     deny  "$(decision '{"tool_input":{"effort":"low"}}')"
+  check "model haiku"               allow "$(decision '{"tool_input":{"model":"haiku","effort":"low"}}')"
+  check "model sonnet"              allow "$(decision '{"tool_input":{"model":"sonnet","effort":"medium","subagent_type":"browser-scout"}}')"
+  check "model opus"                allow "$(decision '{"tool_input":{"model":"opus","effort":"high"}}')"
+  check "opus xhigh"                allow "$(decision '{"tool_input":{"model":"opus","effort":"xhigh"}}')"
+  check "opus max"                  allow "$(decision '{"tool_input":{"model":"opus","effort":"max"}}')"
+  check "sonnet, no effort"         deny  "$(decision '{"tool_input":{"model":"sonnet"}}')"
+  check "sonnet, null effort"       deny  "$(decision '{"tool_input":{"model":"sonnet","effort":null}}')"
+  check "sonnet, effort extreme"    deny  "$(decision '{"tool_input":{"model":"sonnet","effort":"extreme"}}')"
+  check "sonnet, effort High"       deny  "$(decision '{"tool_input":{"model":"sonnet","effort":"High"}}')"
+  check "sonnet, empty effort"      deny  "$(decision '{"tool_input":{"model":"sonnet","effort":""}}')"
   check "scout, no model"           deny  "$(decision '{"tool_input":{"subagent_type":"scout"}}')"
-  check "headroom:scout, no model"  allow "$(decision '{"tool_input":{"subagent_type":"headroom:scout"}}')"
-  check "headroom:scout, null model" allow "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":null}}')"
+  check "headroom:scout, no model"  deny  "$(decision '{"tool_input":{"subagent_type":"headroom:scout"}}')"
+  check "headroom:scout, null model" deny "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":null}}')"
+  check "headroom:scout, haiku, no effort" deny "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":"haiku"}}')"
+  check "headroom:scout, haiku, medium" allow "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":"haiku","effort":"medium"}}')"
   check "headroom:scout, model fable" deny "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":"fable"}}')"
   check "general-purpose, no model" deny  "$(decision '{"tool_input":{"subagent_type":"general-purpose"}}')"
   check "unparseable input"         allow "$(decision 'not json')"
@@ -60,7 +72,7 @@ fi
 if command -v python3 >/dev/null 2>&1; then
   HEADROOM_PARSER=python3 run_matrix "guard via python3"
   echo "  python3 path really parses:"
-  out=$(printf '{"tool_input":{"model":"opus"}}' | HEADROOM_PARSER=python3 $guard 2>&1)
+  out=$(printf '{"tool_input":{"model":"opus","effort":"high"}}' | HEADROOM_PARSER=python3 $guard 2>&1)
   check "no parse-failure note on stderr" "" "$out"
 else
   echo "python3 not installed; skipping python3 path"
@@ -357,6 +369,14 @@ for in in '{"tool_input":{"subagent_type":"fork","model":"sonnet"}}' '{"tool_inp
   r=$(printf '%s' "$in" | $guard 2>/dev/null)
   case "$r" in *haiku*sonnet*opus*) echo "  ok    deny reason names haiku, sonnet, opus" ;; *) echo "  FAIL  deny reason lacks the three models: $in"; fail=1 ;; esac
 done
+for in in '{"tool_input":{"subagent_type":"fork","model":"sonnet"}}' '{"tool_input":{}}' '{"tool_input":{"model":"fable"}}' '{"tool_input":{"model":"sonnet"}}' '{"tool_input":{"model":"sonnet","effort":"extreme"}}'; do
+  r=$(printf '%s' "$in" | $guard 2>/dev/null)
+  ok=1
+  for w in haiku sonnet opus low medium high xhigh max; do case "$r" in *"$w"*) ;; *) ok=0 ;; esac; done
+  if [ $ok = 1 ]; then echo "  ok    deny reason names models and all five levels"; else echo "  FAIL  deny reason lacks a model or level: $in"; fail=1; fi
+done
+r=$(printf '{"tool_input":{"model":"sonnet"}}' | $guard 2>/dev/null)
+case "$r" in *'"headroom:'*effort*) echo "  ok    missing-effort reason starts with headroom: and names effort" ;; *) echo "  FAIL  missing-effort reason text"; fail=1 ;; esac
 case "$out" in *"Agent check refuses"*mythos*"Workflow check"*) echo "  FAIL  preface claims the Agent check refuses mythos"; fail=1 ;; *) echo "  ok    preface makes no mythos claim for the Agent check" ;; esac
 case "$out" in *"Workflow check"*mythos*) echo "  ok    preface lists mythos under the Workflow check" ;; *) echo "  FAIL  preface lacks mythos under the Workflow check"; fail=1 ;; esac
 d=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["description"])' "$root/hooks/hooks.json" 2>/dev/null)
