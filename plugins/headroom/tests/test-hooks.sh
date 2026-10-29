@@ -34,6 +34,11 @@ run_matrix() { # label
   check "model haiku"               allow "$(decision '{"tool_input":{"model":"haiku"}}')"
   check "model sonnet"              allow "$(decision '{"tool_input":{"model":"sonnet","subagent_type":"browser-scout"}}')"
   check "model opus"                allow "$(decision '{"tool_input":{"model":"opus"}}')"
+  check "scout, no model"           deny  "$(decision '{"tool_input":{"subagent_type":"scout"}}')"
+  check "headroom:scout, no model"  allow "$(decision '{"tool_input":{"subagent_type":"headroom:scout"}}')"
+  check "headroom:scout, null model" allow "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":null}}')"
+  check "headroom:scout, model fable" deny "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":"fable"}}')"
+  check "general-purpose, no model" deny  "$(decision '{"tool_input":{"subagent_type":"general-purpose"}}')"
   check "unparseable input"         allow "$(decision 'not json')"
   check "empty input"               allow "$(decision '')"
 }
