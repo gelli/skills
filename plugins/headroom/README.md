@@ -52,7 +52,7 @@ Both plugins hook `PreToolUse` on `Agent` and their checks conflict, so remove m
 
 ## Limits
 
-The Workflow check is a text heuristic. It denies an `agent()` call whose options hold no literal `model` key, so a call that sets its model by shorthand (`{ model }`) or by key passes, and options built elsewhere and passed by variable (`agent(prompt, opts)`) are denied. The value of a `model` key is checked only when it is a literal string: a model passed by variable (`{ model: m }`) is not checked, a `fable` value included. A script that builds its `agent()` calls dynamically can escape the check. The denial message asks for the model written literally in each call. The doing budget counts Edit, Write and NotebookEdit only; edits through Bash (`sed -i`, heredocs) stay uncounted.
+The Workflow check is a text heuristic. It denies an `agent()` call whose options hold no literal `model` key, so a call that sets its model by shorthand (`{ model }`) passes, and options built elsewhere and passed by variable (`agent(prompt, opts)`) are denied. The value of a `model` key is checked only when it is a literal string: a model passed by variable (`{ model: m }`) is not checked, a `fable` value included. A script that builds its `agent()` calls dynamically can escape the check. The denial message asks for the model written literally in each call. The doing budget counts Edit, Write and NotebookEdit only; edits through Bash (`sed -i`, heredocs) stay uncounted.
 
 ## Test
 

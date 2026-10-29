@@ -357,7 +357,7 @@ for in in '{"tool_input":{"subagent_type":"fork","model":"sonnet"}}' '{"tool_inp
   r=$(printf '%s' "$in" | $guard 2>/dev/null)
   case "$r" in *haiku*sonnet*opus*) echo "  ok    deny reason names haiku, sonnet, opus" ;; *) echo "  FAIL  deny reason lacks the three models: $in"; fail=1 ;; esac
 done
-case "$out" in *"refuse a spawn without"*mythos*) echo "  FAIL  preface claims the Agent check refuses mythos"; fail=1 ;; *) echo "  ok    preface makes no mythos claim for the Agent check" ;; esac
+case "$out" in *"Agent check refuses"*mythos*"Workflow check"*) echo "  FAIL  preface claims the Agent check refuses mythos"; fail=1 ;; *) echo "  ok    preface makes no mythos claim for the Agent check" ;; esac
 case "$out" in *"Workflow check"*mythos*) echo "  ok    preface lists mythos under the Workflow check" ;; *) echo "  FAIL  preface lacks mythos under the Workflow check"; fail=1 ;; esac
 d=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["description"])' "$root/hooks/hooks.json" 2>/dev/null)
 case "$d" in *Workflow*) echo "  ok    description field names Workflow" ;; *) echo "  FAIL  description field lacks Workflow"; fail=1 ;; esac
