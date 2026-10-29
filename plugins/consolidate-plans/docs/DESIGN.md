@@ -54,7 +54,7 @@ Description states triggering conditions only — never the workflow (writing-sk
 
 ### Phase 4 — Independent fact-check (must not be skipped)
 
-- One reviewer subagent per touched doc (Sonnet-tier per model-routing), prompted to verify the doc's claims against named source files and report findings with file:line evidence.
+- One reviewer subagent per touched doc (Sonnet-tier per the headroom plugin), prompted to verify the doc's claims against named source files and report findings with file:line evidence.
 - Fix Important findings and re-verify. (Origin-session evidence: this gate caught 3 real factual errors — an invented "silently breaks routing" claim, a wrong "both log streams" claim, and a misleading CORS-default bullet.)
 
 ### Phase 5 — Delete + verify

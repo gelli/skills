@@ -1,37 +1,17 @@
 {
   "name": "headroom",
-  "version": "0.3.0",
-  "description": "Keeps the main session's context small by delegating token-heavy work to three worker roles (scout, implementer, reviewer), with a spawn check, nudges, a refusal of whole reads of large files, and optional blocks.",
+  "version": "0.4.0",
+  "description": "Keeps the orchestrator's context small: tier rules every session, model checks on Agent and Workflow spawns, a Haiku scout, and once-per-prompt nudges when the main session reads or edits too much itself.",
   "author": {
     "name": "Chris Heizmann"
   },
   "keywords": [
-    "delegation",
+    "headroom",
     "subagents",
-    "context",
+    "delegation",
     "hooks"
   ],
   "homepage": "https://github.com/gelli/skills",
   "repository": "https://github.com/gelli/skills",
-  "license": "MIT",
-  "userConfig": {
-    "hard_blocks": {
-      "type": "boolean",
-      "title": "Block delegable work in the main session",
-      "description": "Refuse test/build/lint/type-check runs and repo-wide searches in the main session; lift with /headroom:inline.",
-      "default": false
-    },
-    "block_patterns": {
-      "type": "string",
-      "title": "Extra block patterns",
-      "description": "Extra extended regex (ERE) matched against Bash commands, added to the built-in list.",
-      "default": ""
-    },
-    "read_max_bytes": {
-      "type": "number",
-      "title": "Largest file the main session may Read whole",
-      "description": "Refuse a Read of a file at or over this many bytes (unless it sets limit to 400 or fewer lines, or is an image or pdf); on by default. 0 turns the check off.",
-      "default": 32768
-    }
-  }
+  "license": "MIT"
 }

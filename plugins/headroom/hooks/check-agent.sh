@@ -1,169 +1,76 @@
 #!/bin/sh
-# headroom PreToolUse hook for the Agent tool: enforces that a role (scout,
-# implementer, reviewer) may only be spawned at its default model or higher,
-# never lower, never fable/mythos, never "inherit", and never via
-# subagent_type "fork". A role also may not be spawned with "name" set: that
-# would make it an agent-teams teammate rather than a worker. Explore
-# inherits the main session's model, capped at Opus, not its own. Explore,
-# Plan, subagent_type empty, "general-purpose", and "claude" all need an
-# explicit model. Any other named
-# agent type is left to its own definition.
-#
-# Rank: haiku=1, sonnet=2, opus=3, classified by case-insensitive substring so
-# full model IDs work too (claude-opus-5-5, us.anthropic.claude-haiku-4-5...,
-# "opus[1m]"). Role defaults: scout=haiku, implementer=sonnet, reviewer=sonnet.
-#
-# Every allowed spawn is logged with hr_log_fields (subagent_type, role,
-# model as passed or "default:<role default>", whether it was raised,
-# isolation, run_in_background, whether name was set); denies keep logging
-# through hr_log, as before.
-#
-# Parses hook input with jq, falling back to python3 (HEADROOM_PARSER=python3
-# forces the python3 path for tests); with neither, or on unparseable input,
-# it allows silently and notes the gap on stderr.
+# headroom PreToolUse hook for the Agent tool.
+# Denies a spawn when it would run on the orchestrator's model:
+#   - subagent_type "fork" (forks always inherit the parent model)
+#   - no model parameter (omitted model inherits the session model), except
+#     for subagent_type "headroom:scout", which pins its own model
+#   - model "fable" (Fable is orchestrator-only)
+# Anything else passes through untouched. The denial reason is fed back to
+# Claude so it can re-issue the call with an explicit model.
+# Needs jq or python3 to parse the hook input; with neither it allows the call
+# and notes the gap on stderr. HEADROOM_PARSER=python3 forces the python3
+# path (used by tests/test-hooks.sh); HEADROOM_PARSER=none behaves as if
+# neither is installed.
 set -u
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
-root=${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
-. "$root/hooks/lib.sh"
 
-hr_read_input
-fields=$(hr_fields '
-  "parsed",
-  (.tool_input.subagent_type // ""),
-  (.tool_input.model // ""),
-  (.tool_input.name // ""),
-  (.tool_input.isolation // "" | if type == "string" then . else tostring end),
-  (if (.tool_input.run_in_background // false) then "true" else "false" end)
-' '
+input=$(cat 2>/dev/null || true)
+
+parser=none
+if [ "${HEADROOM_PARSER:-auto}" = none ]; then
+  parser=none
+elif [ "${HEADROOM_PARSER:-auto}" != python3 ] && command -v jq >/dev/null 2>&1; then
+  parser=jq
+elif command -v python3 >/dev/null 2>&1; then
+  parser=python3
+fi
+
+case "$parser" in
+  jq)
+    fields=$(printf '%s' "$input" | jq -r '
+      "parsed\n" + (.tool_input.subagent_type // "") + "\n" + (.tool_input.model // "")' 2>/dev/null)
+    ;;
+  python3)
+    fields=$(printf '%s' "$input" | python3 -c '
 import json, sys
 try:
-    d = json.load(sys.stdin)
+    t = json.load(sys.stdin).get("tool_input") or {}
 except Exception:
     sys.exit(1)
-t = d.get("tool_input") or {}
 print("parsed")
 print(t.get("subagent_type") or "")
-print(t.get("model") or "")
-print(t.get("name") or "")
-iso = t.get("isolation")
-if iso is None:
-    iso = ""
-elif not isinstance(iso, str):
-    iso = json.dumps(iso)
-print(iso)
-print("true" if t.get("run_in_background") else "false")
-')
-rc=$?
-if [ $rc -ne 0 ] || [ "$(printf '%s\n' "$fields" | sed -n 1p)" != parsed ]; then
-  echo "headroom: could not parse hook input (need jq or python3); Agent check skipped" >&2
+print(t.get("model") or "")' 2>/dev/null)
+    ;;
+  *)
+    echo "headroom: neither jq nor python3 found; Agent model check skipped" >&2
+    exit 0
+    ;;
+esac
+
+if [ "$(printf '%s\n' "$fields" | sed -n 1p)" != "parsed" ]; then
+  echo "headroom: could not parse hook input; Agent model check skipped" >&2
   exit 0
 fi
 
 subagent_type=$(printf '%s\n' "$fields" | sed -n 2p)
 model=$(printf '%s\n' "$fields" | sed -n 3p)
-name=$(printf '%s\n' "$fields" | sed -n 4p)
-isolation=$(printf '%s\n' "$fields" | sed -n 5p)
-run_in_background=$(printf '%s\n' "$fields" | sed -n 6p)
-model_lc=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]')
-# Claude Code resolves subagent_type ignoring case, whitespace, "-" and "_",
-# so match on the normalised value; messages keep the original spelling.
-# Lowercase before stripping the prefix so "HEADROOM:scout" is still a role.
-role=$(printf '%s' "$subagent_type" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
-role=$(printf '%s' "${role#headroom:}" | tr -d '_-')
-if [ -n "$name" ]; then named=true; else named=false; fi
 
-deny_and_log() { # reason
-  hr_log deny check-agent "$1"
-  hr_deny "$1"
+deny() {
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$1"
   exit 0
 }
 
-# allow_and_log <role-for-log> <model-for-log> <raised> -- logs an allowed
-# spawn with the fields Phase 2 needs (2.2), then exits allow. role and
-# raised are only meaningful for scout/implementer/reviewer; every other
-# subagent_type logs role "" and raised false.
-allow_and_log() {
-  hr_log_fields allow check-agent \
-    subagent_type "$subagent_type" \
-    role "$1" \
-    model "$2" \
-    raised "$3" \
-    isolation "$isolation" \
-    run_in_background "$run_in_background" \
-    named "$named"
-  exit 0
-}
-
-# 1. A fork always inherits the parent model.
-if [ "$role" = fork ]; then
-  deny_and_log "headroom: subagent_type \"fork\" is not allowed. A fork always inherits the orchestrator model and ignores the model parameter. Spawn headroom:scout, headroom:implementer, or headroom:reviewer with a written brief instead."
-fi
-
-# 2. Fable and Mythos are orchestrator/advisor-only.
-case "$model_lc" in
-  *fable*|*mythos*)
-    deny_and_log "headroom: model \"$model\" is not allowed for subagents. Fable and Mythos are orchestrator/advisor-only. Use haiku, sonnet, or opus, or omit model to use the role's default."
-    ;;
+case "$subagent_type" in
+  fork) deny "headroom: subagent_type \\\"fork\\\" is not allowed. A fork always inherits the orchestrator model and ignores the model parameter. Spawn a fresh agent with a written brief (GOAL, CONTEXT, SCOPE, RETURN) and an explicit model: haiku, sonnet, or opus." ;;
 esac
 
-# 3. "inherit" would silently take on the orchestrator's model.
-if [ "$model_lc" = inherit ]; then
-  deny_and_log "headroom: model \"inherit\" is not allowed. Re-issue the call with an explicit model: haiku, sonnet, or opus, or omit model to use the role's default."
-fi
+# The scout agent pins its own model in its frontmatter, so it needs no
+# model parameter. An explicit model (including fable) still gets checked.
+[ "$subagent_type" = "headroom:scout" ] && [ -z "$model" ] && exit 0
 
-rank_of() {
-  case "$1" in
-    *opus*) echo 3 ;;
-    *sonnet*) echo 2 ;;
-    *haiku*) echo 1 ;;
-    *) echo "" ;;
-  esac
-}
-
-case "$role" in
-  scout|implementer|reviewer)
-    # 3b. headroom roles are workers, not agent-teams teammates: a "name"
-    # would spawn one, and a teammate built from a role's definition may not
-    # keep its disallowedTools limit.
-    if [ -n "$name" ]; then
-      deny_and_log "headroom: headroom:$role was spawned with \"name\" set, which would make it an agent-teams teammate instead of a worker. Drop \"name\" and re-issue the call as a plain worker spawn."
-    fi
-    if [ "$role" = scout ]; then
-      default_rank=1
-      default_name=haiku
-    else
-      default_rank=2
-      default_name=sonnet
-    fi
-    if [ -z "$model" ]; then
-      allow_and_log "$role" "default:$default_name" false
-    fi
-    rank=$(rank_of "$model_lc")
-    if [ -z "$rank" ]; then
-      echo "headroom: model \"$model\" for headroom:$role is not a recognised tier (haiku/sonnet/opus); allowing it through unchecked" >&2
-      allow_and_log "$role" "$model" false
-    fi
-    if [ "$rank" -ge "$default_rank" ]; then
-      if [ "$rank" -gt "$default_rank" ]; then raised=true; else raised=false; fi
-      allow_and_log "$role" "$model" "$raised"
-    fi
-    deny_and_log "headroom: headroom:$role's default model is $default_name; roles may only be raised, never lowered. Re-issue with model omitted (uses $default_name) or raised to sonnet or opus."
-    ;;
-  explore|plan)
-    # Explore actually runs on the main session's model (capped at Opus), not
-    # its own, so a model-less spawn is denied (plan item 4.7).
-    if [ -z "$model" ]; then
-      deny_and_log "headroom: subagent_type \"$subagent_type\" without a model would run on the orchestrator model. Re-issue the call with an explicit model (haiku, sonnet, or opus), or prefer headroom:scout for search and lookup work."
-    fi
-    allow_and_log "" "$model" false
-    ;;
-  ""|generalpurpose|claude)
-    if [ -z "$model" ]; then
-      deny_and_log "headroom: subagent_type \"$subagent_type\" has no default model, so it would inherit the orchestrator model. Re-issue the call with an explicit model: haiku, sonnet, or opus."
-    fi
-    allow_and_log "" "$model" false
-    ;;
-  *)
-    allow_and_log "" "$model" false
-    ;;
+case "$model" in
+  "") deny "headroom: Agent call has no model parameter, so the subagent would run on the session model (or CLAUDE_CODE_SUBAGENT_MODEL, when set). Re-issue the call with model: haiku (mechanical, high-volume), sonnet (engineering judgment, the implementation floor), or opus (only when the task needs top-tier reasoning, is fully briefable, and isolation or parallelism pays)." ;;
+  fable) deny "headroom: model \\\"fable\\\" is not allowed for subagents. Fable is orchestrator-only. Use haiku, sonnet, or opus." ;;
 esac
+
+exit 0

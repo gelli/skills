@@ -8,22 +8,10 @@
   },
   "plugins": [
     {
-      "name": "model-routing",
-      "source": "./plugins/model-routing",
-      "description": "Deprecated: use headroom. Orchestrator-first model routing: injects the Haiku/Sonnet/Opus tier rules every session and blocks Agent spawns without an explicit model, with fable, or via fork",
-      "version": "0.2.1",
-      "keywords": [
-        "model-routing",
-        "subagents",
-        "delegation",
-        "hooks"
-      ]
-    },
-    {
       "name": "headroom",
       "source": "./plugins/headroom",
-      "description": "Keeps the main session's context small by delegating token-heavy work to three worker roles, with a spawn check, nudges, a large-file read refusal and optional blocks",
-      "version": "0.3.0",
+      "description": "Keeps the orchestrator's context small: tier rules every session, model checks on Agent and Workflow spawns, a Haiku scout, and once-per-prompt nudges when the main session reads or edits too much itself.",
+      "version": "0.4.0",
       "keywords": [
         "delegation",
         "subagents",
