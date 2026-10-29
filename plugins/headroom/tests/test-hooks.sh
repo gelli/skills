@@ -392,6 +392,7 @@ if rules_check "$root/rules.md"; then echo "  ok    rules sections and tiers pre
 git -C "$root/../.." show origin/main:plugins/headroom/rules.md > "$tmp/rules-0.4.md" 2>/dev/null
 if rules_check "$tmp/rules-0.4.md"; then echo "  FAIL  rules check accepts the 0.4 rules"; fail=1; else echo "  ok    rules check rejects the 0.4 rules"; fi
 check "scout.md has no 'instead of'" 0 "$(grep -cE 'instead of|, not |not just' "$root/agents/scout.md")"
+check "scout.md sets effort medium" 1 "$(grep -c '^effort: medium$' "$root/agents/scout.md")"
 check "README drops CLAUDE_CODE_SUBAGENT_MODEL=sonnet" 0 "$(grep -c 'CLAUDE_CODE_SUBAGENT_MODEL=sonnet' "$root/README.md")"
 check "README names 2.1.312" 1 "$(grep -c '2\.1\.312' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
 check "README names the fallback folder" 1 "$(grep -c 'TMPDIR:-/tmp}/headroom' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
