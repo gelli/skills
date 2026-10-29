@@ -7,6 +7,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/.." && pwd)
 guard="$root/hooks/check-agent.sh"
 inject="$root/hooks/inject-rules.sh"
+wfguard="$root/hooks/check-workflow.sh"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
 fail=0
 
 check() { # label expected actual
@@ -59,6 +62,34 @@ if command -v python3 >/dev/null 2>&1; then
   check "no parse-failure note on stderr" "" "$out"
 else
   echo "python3 not installed; skipping python3 path"
+fi
+
+wf_decision() { # <json> -> allow | deny | other
+  out=$(printf '%s' "$1" | "$wfguard" 2>/dev/null)
+  case "$out" in
+    "") printf 'allow' ;;
+    *'"permissionDecision":"deny"'*) printf 'deny' ;;
+    *) printf 'other' ;;
+  esac
+}
+
+workflow_matrix() { # label
+  echo "$1"
+  printf "agent('x', { model: 'fable' })\n" > "$tmp/fable.js"
+  check "inline model fable"        deny  "$(wf_decision '{"tool_input":{"script":"agent(\"x\", { model: \u0027fable\u0027 })"}}')"
+  check "inline model mythos"       deny  "$(wf_decision '{"tool_input":{"script":"agent(\"x\", { model: \"mythos\" })"}}')"
+  check "model split across lines"  deny  "$(wf_decision '{"tool_input":{"script":"agent(\"x\", { model:\n  \u0027fable\u0027 })"}}')"
+  check "scriptPath with fable"     deny  "$(wf_decision "{\"tool_input\":{\"scriptPath\":\"$tmp/fable.js\"}}")"
+  check "named workflow"            allow "$(wf_decision '{"tool_input":{"name":"review-changes"}}')"
+  check "all agents sonnet"         allow "$(wf_decision '{"tool_input":{"script":"agent(\"a\", { model: \u0027sonnet\u0027 }); agent(\"b\", { model: \u0027sonnet\u0027 })"}}')"
+  check "unparseable input"         allow "$(wf_decision 'not json')"
+}
+
+if command -v jq >/dev/null 2>&1; then
+  workflow_matrix "workflow guard via jq"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  HEADROOM_PARSER=python3 workflow_matrix "workflow guard via python3"
 fi
 
 echo "injector"

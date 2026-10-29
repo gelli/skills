@@ -23,6 +23,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/check-workflow.sh\"",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }
