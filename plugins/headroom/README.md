@@ -1,47 +1,76 @@
-# model-routing
+# headroom
 
-**Deprecated: use [headroom](../headroom/README.md) instead.** Headroom supersedes this plugin: it covers the same Agent-spawn model rule plus delegation itself (three worker roles, nudges, optional blocks). Both plugins hook `PreToolUse` on `Agent`, and their checks conflict (this plugin's check does not know about headroom's roles), so uninstall model-routing before installing headroom. Model-routing will be removed from the marketplace in a later release.
+Keeps the orchestrator's context small. The main session reads and edits less itself and hands lookups, runs and implementation to cheaper subagents. Headroom replaces model-routing and the earlier headroom plugin.
 
-Keeps the orchestrator on the session's top-tier model and pushes the doing down to the cheapest subagent tier that can do it reliably. Two hooks:
+## What it does
 
-- **SessionStart** injects `routing.md` into context on startup, clear and after every compaction. Not on resume: a resumed transcript already holds the rules. The rules pre-authorise Haiku, Sonnet and Opus spawns, workflows and deep research (no confirmation prompt), and define the Haiku / Sonnet / Opus tiers, the gated Opus-subagent exception, the brief every delegation must carry, and the Fable orchestrator-only rule.
-- **PreToolUse on `Agent`** denies a spawn that would land on the orchestrator model and tells Claude why so it re-issues the call correctly:
-  - no `model` parameter (the subagent would inherit the session model)
-  - `model: "fable"` (Fable is orchestrator-only)
-  - `subagent_type: "fork"` (forks always inherit the parent model and ignore `model`)
+Four hooks and one agent:
 
-Everything else passes through. Whether `opus` is justified for a given spawn is a judgment call the rules leave to Claude, so the hook does not gate it.
+- **SessionStart** injects `rules.md` on startup, clear and after every compaction. The rules pre-authorise Haiku, Sonnet and Opus spawns, workflows and deep research (no confirmation prompt), and define the tiers, review routing, the brief every delegation carries, a Reading section (when to hand reading to the scout) and the Fable orchestrator-only rule.
+- **PreToolUse on `Agent`** denies a spawn that would land on the orchestrator model: no `model` parameter, `model: "fable"`, or `subagent_type: "fork"`. The denial names the allowed models so Claude re-issues the call. The `headroom:scout` agent passes without a `model` because it pins Haiku itself.
+- **PreToolUse on `Workflow`** reads the script (inline `script` or the file at `scriptPath`) and denies one that names `fable` or `mythos`, or holds an `agent(` call whose options name no `model`. The denial tells Claude to write `haiku`, `sonnet` or `opus` literally in each call.
+- **PostToolUse** (`budget.sh`) keeps two counters for the main session and nudges once per user prompt for each:
+  - Reading: when read output since the prompt passes the reading budget, the nudge names `headroom:scout`. Read, Grep, Glob, WebFetch, WebSearch, MCP tools and Bash count. Bash counts stdout plus stderr, and nothing once the output is persisted to a file.
+  - Doing: when the main session edits a third distinct file in the prompt (Edit, Write, NotebookEdit), the nudge names an implementer spawn.
+  Both counters restart when the hook input carries a new `prompt_id`. Worker tool calls (hook input with an `agent_id`) never count.
+- **`headroom:scout`** is a Haiku agent for single-shape jobs: repo-wide searches, test and build runs, log reads, multi-file reads, docs lookups, summaries. It has no Edit, Write, NotebookEdit, Agent or Workflow tool and reports in 40 lines or less.
 
-The guard is deliberately independent of which model the session runs on: hook input carries no session model, and an omitted `model` is a routing bug under Opus and Fable alike.
+Nothing blocks except the Agent and Workflow checks. The plugin writes no log; measurement comes from transcripts.
+
+## Settings
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HEADROOM_READ_BUDGET` | `24576` | Bytes of read output per prompt before the reading nudge. `0` turns it off. |
+| `HEADROOM_EDIT_BUDGET` | `3` | Distinct files edited per prompt before the doing nudge. `0` turns it off. |
+
+Counter state is one small file per session in `CLAUDE_PLUGIN_DATA`.
+
+## Requirements
+
+Hooks are POSIX `sh` and parse hook input with `jq`, falling back to `python3`. With neither installed, every hook lets the call through and writes one line to stderr.
 
 ## Install
 
 ```
 /plugin marketplace add gelli/skills
-/plugin install model-routing@gelli-skills
+/plugin install headroom@gelli-skills
 ```
 
-If your `CLAUDE.md` still includes a copy of the routing rules, remove it after installing. The plugin ships the pre-authorisation along with the rules, so drop that from `CLAUDE.md` too. Keep environment-specific policy there, such as routing to agents that only exist on your machine (for example a browser-automation agent).
+If your `CLAUDE.md` still includes a copy of the routing rules, remove it after installing. The plugin ships the pre-authorisation along with the rules. Keep environment-specific policy in `CLAUDE.md`, such as routing to agents that only exist on your machine.
 
-## Requirements
+### Migrating from model-routing
 
-The guard parses hook input with `jq`, falling back to `python3`. With neither installed it lets the call through and logs a note on stderr.
+Both plugins hook `PreToolUse` on `Agent` and their checks conflict, so remove model-routing first:
 
+```
+/plugin uninstall model-routing@gelli-skills
+/plugin install headroom@gelli-skills
+```
+
+Then set `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` in your environment, so subagents that omit a model land on Sonnet.
+
+## Limits
+
+The Workflow check is a text heuristic. A model passed through a variable (`agent(prompt, { model: m })`) triggers a false denial, and a script that builds its `agent()` calls dynamically can escape the check. The denial message asks for the model written literally in each call. The doing budget counts Edit, Write and NotebookEdit only; edits through Bash (`sed -i`, heredocs) stay uncounted.
 
 ## Test
 
 ```
-sh plugins/model-routing/tests/test-hooks.sh
-claude plugin validate ./plugins/model-routing --strict
+sh plugins/headroom/tests/test-hooks.sh
+HEADROOM_PARSER=python3 sh plugins/headroom/tests/test-hooks.sh
+claude plugin validate ./plugins/headroom --strict
 ```
+
+The script already runs the python3 path for each hook, so the second line repeats the matrix with python3 as the parser everywhere.
 
 ## Try it in a session
 
 ```
-claude --plugin-dir ./plugins/model-routing
+claude --plugin-dir ./plugins/headroom
 ```
 
-Then ask Claude to spawn a subagent without a model. The call is refused with the reason and re-issued with an explicit model.
+Ask Claude to spawn a subagent without a model: the call is refused with the reason and re-issued with an explicit model. Read several large files in one prompt to see the reading nudge.
 
 ## Recommended Sources
 
