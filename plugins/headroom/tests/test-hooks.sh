@@ -201,6 +201,36 @@ budget_matrix() { # label
   check "edit budget 1 first edit" edit "$(HEADROOM_EDIT_BUDGET=1 eout "$(ejson Edit /w/a)")"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
   check "edits do not feed read budget" quiet "$(bout "$(ejson Edit /w/a)")"
+  # Prompt restart: both budgets reset on a changed prompt_id.
+  p2() { printf '%s' "$1" | sed 's/"p1"/"p2"/'; }
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  bout "$(bjson Read 30000)" >/dev/null
+  eout "$(ejson Edit /w/a)" >/dev/null; eout "$(ejson Edit /w/b)" >/dev/null
+  check "p1 edit nudge fires"       edit  "$(eout "$(ejson Edit /w/c)")"
+  check "p2 read restarts (1)"      quiet "$(bout "$(p2 "$(bjson Read 20000)")")"
+  check "p2 read nudges again"      nudge "$(bout "$(p2 "$(bjson Read 10000)")")"
+  check "p2 edit a"                 quiet "$(eout "$(p2 "$(ejson Edit /w/a)")")"
+  check "p2 edit b"                 quiet "$(eout "$(p2 "$(ejson Edit /w/b)")")"
+  check "p2 edit c nudges again"    edit  "$(eout "$(p2 "$(ejson Edit /w/c)")")"
+  check "back to p1 restarts reads" quiet "$(bout "$(bjson Read 20000)")"
+  check "back to p1 reads nudge"    nudge "$(bout "$(bjson Read 10000)")"
+  check "back to p1 restarts edits" quiet "$(eout "$(ejson Edit /w/a)")"
+  check "back to p1 edit b"         quiet "$(eout "$(ejson Edit /w/b)")"
+  check "back to p1 edit c nudges"  edit  "$(eout "$(ejson Edit /w/c)")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  bout "$(bjson Read 20000 | sed 's/"s1"/"s2"/')" >/dev/null
+  before=$(cat "$BD/budget-s2")
+  bout "$(bjson Read 30000)" >/dev/null
+  bout "$(p2 "$(bjson Read 30000)")" >/dev/null
+  check "other session state untouched" "$before" "$(cat "$BD/budget-s2")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  np() { printf '%s' "$1" | sed 's/"prompt_id":"p1",//'; }
+  check "no prompt_id: read 1"      quiet "$(bout "$(np "$(bjson Read 20000)")")"
+  check "no prompt_id: read nudges" nudge "$(bout "$(np "$(bjson Read 10000)")")"
+  check "no prompt_id: read once"   quiet "$(bout "$(np "$(bjson Read 30000)")")"
+  eout "$(np "$(ejson Edit /w/a)")" >/dev/null; eout "$(np "$(ejson Edit /w/b)")" >/dev/null
+  check "no prompt_id: edit nudges" edit  "$(eout "$(np "$(ejson Edit /w/c)")")"
+  check "no prompt_id: edit once"   quiet "$(eout "$(np "$(ejson Edit /w/d)")")"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
   check "unparseable input"  quiet "$(bout 'not json')"
 }
