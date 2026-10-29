@@ -74,7 +74,7 @@ esac
 
 case "$effort" in
   low|medium|high|xhigh|max) ;;
-  *) deny "headroom: Agent call has no valid effort parameter, so the subagent would run at the session's effort level. Re-issue the call with effort low, medium, high, xhigh or max, paired per the tiers: haiku medium (low for a single test, build or lint run), sonnet medium (high for spec, security and concurrency reviews), opus medium (high for the final review) with model haiku, sonnet or opus." ;;
+  *) deny "headroom: Agent call has no valid effort parameter, so the subagent would run at the session's effort level. Re-issue the call with effort low, medium, high, xhigh or max, paired per the tiers: haiku medium (low for a single test, build or lint run), sonnet medium (high for spec, security and concurrency reviews), opus medium (high for the final review)." ;;
 esac
 
 exit 0
