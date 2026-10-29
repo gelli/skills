@@ -1,5 +1,5 @@
 {
-  "description": "Headroom: inject the tier rules every session and refuse Agent spawns without an explicit, allowed model.",
+  "description": "Headroom: inject the tier rules every session and refuse Agent spawns without an explicit, allowed model, and nudge toward the scout once a prompt has read a lot.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,18 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read|Bash|Grep|Glob|WebFetch|WebSearch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/budget.sh\"",
             "timeout": 5
           }
         ]

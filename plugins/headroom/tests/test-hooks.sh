@@ -110,6 +110,69 @@ if command -v python3 >/dev/null 2>&1; then
   HEADROOM_PARSER=python3 workflow_matrix "workflow guard via python3"
 fi
 
+budget="$root/hooks/budget.sh"
+
+blob() { head -c "$1" /dev/zero | tr '\0' 'a'; }
+
+# bjson <tool> <bytes> [extra top-level json fields] -> hook input
+bjson() {
+  case "$1" in
+    Read) printf '{"session_id":"s1","prompt_id":"p1"%s,"tool_name":"Read","tool_response":{"file":{"content":"%s"}}}' "${3:-}" "$(blob "$2")" ;;
+    Bash) printf '{"session_id":"s1","prompt_id":"p1"%s,"tool_name":"Bash","tool_response":{"stdout":"%s","stderr":""}}' "${3:-}" "$(blob "$2")" ;;
+  esac
+}
+
+# bout <json> -> nudge | quiet (data dir from $BD)
+bout() {
+  out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$BD" "$budget" 2>/dev/null)
+  case "$out" in
+    "") printf 'quiet' ;;
+    *'"hookEventName":"PostToolUse"'*'headroom:scout'*) printf 'nudge' ;;
+    *) printf 'other' ;;
+  esac
+}
+
+budget_matrix() { # label
+  echo "$1"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "read 1 of 3"        quiet "$(bout "$(bjson Read 10000)")"
+  check "read 2 of 3"        quiet "$(bout "$(bjson Read 10000)")"
+  check "read 3 of 3 nudges" nudge "$(bout "$(bjson Read 10000)")"
+  check "read 4 stays quiet" quiet "$(bout "$(bjson Read 10000)")"
+  check "one state file"     1 "$(ls "$BD" | grep -c '^budget-s1$')"
+  check "no leftover lock"   0 "$(ls "$BD" | grep -c 'lock')"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  for i in 1 2 3 4; do r=$(bout "$(bjson Read 10000 ',"agent_id":"w1"')"); done
+  check "agent_id: never"    quiet "$r"
+  check "agent_id: no state" 0 "$(ls "$BD" | wc -l | tr -d ' ')"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "persisted bash"     quiet "$(bout '{"session_id":"s1","prompt_id":"p1","tool_name":"Bash","tool_response":{"stdout":"'"$(blob 50000)"'","stderr":"","persistedOutputPath":"/tmp/x"}}')"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "stdout+stderr nudges" nudge "$(bout '{"session_id":"s1","prompt_id":"p1","tool_name":"Bash","tool_response":{"stdout":"'"$(blob 20000)"'","stderr":"'"$(blob 10000)"'"}}')"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "stdout alone quiet" quiet "$(bout "$(bjson Bash 20000)")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "new prompt resets (1)" quiet "$(bout "$(bjson Read 20000)")"
+  check "new prompt resets (2)" quiet "$(bout "$(bjson Read 20000 | sed 's/"p1"/"p2"/')")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "budget 1000"        nudge "$(HEADROOM_READ_BUDGET=1000 bout "$(bjson Read 1500)")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "budget 0 never"     quiet "$(HEADROOM_READ_BUDGET=0 bout "$(bjson Read 90000)")"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  check "unparseable input"  quiet "$(bout 'not json')"
+}
+
+if command -v jq >/dev/null 2>&1; then
+  budget_matrix "budget via jq"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  HEADROOM_PARSER=python3 budget_matrix "budget via python3"
+fi
+echo "budget without a parser"
+err=$(printf '%s' "$(bjson Read 30000)" | HEADROOM_PARSER=none CLAUDE_PLUGIN_DATA="$tmp" "$budget" 2>&1 >/dev/null); rc=$?
+check "parser none exits 0" 0 "$rc"
+check "parser none: one stderr line" 1 "$(printf '%s\n' "$err" | grep -c .)"
+
 echo "injector"
 out=$(CLAUDE_PLUGIN_ROOT="$root" "$inject" </dev/null)
 case "$out" in "<headroom>"*"</headroom>") echo "  ok    wrapped in <headroom> tags" ;; *) echo "  FAIL  tag wrapping"; fail=1 ;; esac
