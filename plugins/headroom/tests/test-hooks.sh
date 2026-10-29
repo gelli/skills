@@ -411,6 +411,11 @@ case "$out" in *"Workflow check"*mythos*) echo "  ok    preface lists mythos und
 d=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["description"])' "$root/hooks/hooks.json" 2>/dev/null)
 case "$d" in *Workflow*) echo "  ok    description field names Workflow" ;; *) echo "  FAIL  description field lacks Workflow"; fail=1 ;; esac
 case "$d" in *effort*) echo "  ok    description field names effort" ;; *) echo "  FAIL  description field lacks effort"; fail=1 ;; esac
+limits=$(sed -n '/^## Limits/,/^## Test/p' "$root/README.md")
+check "README Limits names the Agent check" 1 "$(printf '%s\n' "$limits" | grep -c 'Agent check' | sed 's/^[1-9][0-9]*$/1/')"
+check "README Limits names the Workflow check" 1 "$(printf '%s\n' "$limits" | grep -c 'Workflow check' | sed 's/^[1-9][0-9]*$/1/')"
+check "README Limits says the Workflow check leaves the effort value unchecked" 1 "$(printf '%s\n' "$limits" | grep -c 'leaves its value unchecked' | sed 's/^[1-9][0-9]*$/1/')"
+check "hooks.json description drops 'allowed model and effort'" 0 "$(grep -c 'allowed model and effort' "$root/hooks/hooks.json")"
 check "no contrastive phrasing" 0 "$(cat "$root/rules.md" "$root/agents/scout.md" "$root/hooks/inject-rules.sh" "$root/hooks/hooks.json" | grep -cE 'instead of|rather than|, not |not just')"
 rules_check() { # file: required headings and tier lines present, "## Large changes" absent
   for s in '## Pre-authorisation' '## Spawn at all?' '## Reading' '## Tiers' '## Reviews' '## Parallelism' '## Every brief' '## Workflows' \
