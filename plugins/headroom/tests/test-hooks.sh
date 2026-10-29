@@ -361,7 +361,16 @@ case "$out" in *"Agent check refuses"*mythos*"Workflow check"*) echo "  FAIL  pr
 case "$out" in *"Workflow check"*mythos*) echo "  ok    preface lists mythos under the Workflow check" ;; *) echo "  FAIL  preface lacks mythos under the Workflow check"; fail=1 ;; esac
 d=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["description"])' "$root/hooks/hooks.json" 2>/dev/null)
 case "$d" in *Workflow*) echo "  ok    description field names Workflow" ;; *) echo "  FAIL  description field lacks Workflow"; fail=1 ;; esac
-case "$(cat "$root/rules.md")" in *HEADROOM_READ_BUDGET*HEADROOM_EDIT_BUDGET*) echo "  ok    rules names both budget settings" ;; *) echo "  FAIL  rules lacks budget settings"; fail=1 ;; esac
+rules_check() { # file: required headings and tier lines present, "## Large changes" absent
+  for s in '## Pre-authorisation' '## Spawn at all?' '## Reading' '## Tiers' '## Reviews' '## Parallelism' '## Every brief' '## Workflows' \
+    '**haiku, medium**' '**sonnet, medium**' '**sonnet, high**' '**opus, medium**' '**opus, high**'; do
+    grep -qF -- "$s" "$1" || return 1
+  done
+  ! grep -qF -- '## Large changes' "$1"
+}
+if rules_check "$root/rules.md"; then echo "  ok    rules sections and tiers present"; else echo "  FAIL  rules sections or tiers missing"; fail=1; fi
+git -C "$root/../.." show origin/main:plugins/headroom/rules.md > "$tmp/rules-0.4.md" 2>/dev/null
+if rules_check "$tmp/rules-0.4.md"; then echo "  FAIL  rules check accepts the 0.4 rules"; fail=1; else echo "  ok    rules check rejects the 0.4 rules"; fi
 check "scout.md has no 'instead of'" 0 "$(grep -cE 'instead of|, not |not just' "$root/agents/scout.md")"
 check "README drops CLAUDE_CODE_SUBAGENT_MODEL=sonnet" 0 "$(grep -c 'CLAUDE_CODE_SUBAGENT_MODEL=sonnet' "$root/README.md")"
 check "README names 2.1.312" 1 "$(grep -c '2\.1\.312' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
