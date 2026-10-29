@@ -73,6 +73,11 @@ wf_decision() { # <json> -> allow | deny | other
   esac
 }
 
+wfscript() { # label expected script
+  printf '%s' "$3" > "$tmp/s.js"
+  check "$1" "$2" "$(wf_decision "{\"tool_input\":{\"scriptPath\":\"$tmp/s.js\"}}")"
+}
+
 workflow_matrix() { # label
   echo "$1"
   printf "agent('x', { model: 'fable' })\n" > "$tmp/fable.js"
@@ -83,6 +88,19 @@ workflow_matrix() { # label
   check "named workflow"            allow "$(wf_decision '{"tool_input":{"name":"review-changes"}}')"
   check "all agents sonnet"         allow "$(wf_decision '{"tool_input":{"script":"agent(\"a\", { model: \u0027sonnet\u0027 }); agent(\"b\", { model: \u0027sonnet\u0027 })"}}')"
   check "unparseable input"         allow "$(wf_decision 'not json')"
+  wfscript "agent without options"   deny  "agent('do x')"
+  wfscript "agent without model"     deny  "agent(p, {label: 'a'})"
+  wfscript "one of two lacks model"  deny  "agent(p, {model: 'haiku'}); agent(q, {label: 'b'})"
+  wfscript "multi-line with model"   allow "agent(p, {
+ label: 'a',
+ model: 'haiku'
+})"
+  wfscript "no agent call"           allow "const x = 1; log(x)"
+  wfscript "reagent without model"   allow "reagent(p, {label: 'a'})"
+  wfscript "agent after punctuation" deny  "await Promise.all([agent(p), agent(q, {model: 'sonnet'})])"
+  printf "agent(p, {label: 'a'})" > "$tmp/nomodel.js"
+  reason=$(printf '{"tool_input":{"scriptPath":"%s"}}' "$tmp/nomodel.js" | "$wfguard" 2>/dev/null | grep -c 'write the model literally')
+  check "deny reason names the rule" 1 "$reason"
 }
 
 if command -v jq >/dev/null 2>&1; then
