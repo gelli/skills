@@ -1,19 +1,19 @@
 # headroom
 
-Keeps the orchestrator's context small. The main session reads and edits less itself and hands lookups, runs and implementation to cheaper subagents. Headroom replaces model-routing and the earlier headroom plugin.
+Keeps the orchestrator's context small. The main session reads and edits less itself and hands long runs, many-file sweeps and larger implementation work to cheaper subagents. Headroom replaces model-routing and the earlier headroom plugin.
 
 ## What it does
 
 Four hooks and one agent:
 
-- **SessionStart** injects `rules.md` on startup, clear and after every compaction. The rules pre-authorise Haiku, Sonnet and Opus spawns and deep research (no confirmation prompt), suggest a workflow to the user where a task has many independent pieces, and define the tiers, review routing, the brief every delegation carries, a Reading section (when to hand reading to the scout) and the Fable orchestrator-only rule.
+- **SessionStart** injects `rules.md` on startup, clear and after every compaction. The rules define the tiers with a model and an effort for each, review routing, the workflow settings (every `agent()` call names model and effort) and the spawn cases: what stays in the main session, what goes to the scout, and when a plan goes to workers. They suggest a workflow to the user where a task has many independent pieces, and they name what every brief asks for (the verification output of a change, no nested spawns) and the Fable orchestrator-only rule.
 - **PreToolUse on `Agent`** denies a spawn that would land on the session model or effort: no `model` parameter, `model: "fable"`, `subagent_type: "fork"`, or an `effort` that is missing or not one of low, medium, high, xhigh or max. The denial names the allowed models and efforts so Claude re-issues the call.
 - **PreToolUse on `Workflow`** reads the script (inline `script` or the file at `scriptPath`) and denies one that names `fable` or `mythos`, or holds an `agent(` call whose options name no `model` or no `effort`. The denial tells Claude to write `haiku`, `sonnet` or `opus` and an effort literally in each call.
 - **PostToolUse** (`budget.sh`) keeps two counters for the main session and nudges once per user prompt for each:
-  - Reading: when read output since the prompt passes the reading budget, the nudge names `headroom:scout`. Read, Grep, Glob, WebFetch, WebSearch, MCP tools and Bash count. Bash counts stdout plus stderr, and nothing once the output is persisted to a file.
+  - Reading: when read output since the prompt passes the reading budget, the nudge sends the remaining long runs and many-file sweeps to `headroom:scout`. Read, Grep, Glob, WebFetch, WebSearch, MCP tools and Bash count. Bash counts stdout plus stderr, and nothing once the output is persisted to a file.
   - Doing: when the main session edits a third distinct file in the prompt (Edit, Write, NotebookEdit), the nudge names an implementer spawn.
   Both counters restart when the hook input carries a new `prompt_id`. Worker tool calls (hook input with an `agent_id`) never count.
-- **`headroom:scout`** is a Haiku agent that runs at medium effort by default, for single-shape jobs: repo-wide searches, test and build runs, log reads, multi-file reads, docs lookups, summaries. It has no Edit, Write, NotebookEdit, Agent or Workflow tool and reports in 40 lines or less.
+- **`headroom:scout`** is a Haiku agent that runs at medium effort by default, for single-shape jobs: test and build runs, log reads, many-file searches and reads, and summaries of long material. It has no Edit, Write, NotebookEdit, Agent or Workflow tool and reports in 40 lines or less.
 
 Nothing blocks except the Agent and Workflow checks. The plugin writes no log; measurement comes from transcripts.
 
@@ -39,7 +39,7 @@ Hooks are POSIX `sh` and parse hook input with `jq`, falling back to `python3`. 
 /plugin install headroom@gelli-skills
 ```
 
-If your `CLAUDE.md` still includes a copy of the routing rules, remove it after installing. The plugin ships the pre-authorisation along with the rules. Keep environment-specific policy in `CLAUDE.md`, such as routing to agents that only exist on your machine.
+If your `CLAUDE.md` still includes a copy of the routing rules, remove it after installing. The plugin ships the rules. Keep environment-specific policy in `CLAUDE.md`, such as routing to agents that only exist on your machine.
 
 ### Saved workflow scripts
 
@@ -57,6 +57,8 @@ Both plugins hook `PreToolUse` on `Agent` and their checks conflict, so remove m
 ## Limits
 
 The Workflow check is a text heuristic. It denies an `agent()` call whose options hold no literal `model` key, so a call that sets its model by shorthand (`{ model }`) passes, and options built elsewhere and passed by variable (`agent(prompt, opts)`) are denied. The value of a `model` key is checked only when it is a literal string: a model passed by variable (`{ model: m }`) is not checked, a `fable` value included. A script that builds its `agent()` calls dynamically can escape the check. The Agent check refuses a missing effort or a level outside low, medium, high, xhigh and max. The Workflow check requires a literal `effort` key in each `agent()` call and leaves its value unchecked. The rules govern the pairing of model and effort. The Workflow check cannot follow an effort passed through a variable, so write the effort literally in each call, as with the model. The denial message asks for the model and the effort written literally in each call. The doing budget counts Edit, Write and NotebookEdit only; edits through Bash (`sed -i`, heredocs) stay uncounted.
+
+- Lookups stay in the main session by design. In 96 headless runs on 2026-10-30, sending lookups to the scout never left the main session's context smaller, and Opus skipped the scout for explicit lookups. Claude Code's own Agent tool text also tells the model to do lookups itself. The scout takes long runs and many-file sweeps.
 
 ## Test
 
