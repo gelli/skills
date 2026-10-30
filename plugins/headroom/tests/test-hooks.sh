@@ -447,6 +447,8 @@ else
 fi
 check "scout.md has no 'instead of'" 0 "$(grep -cE 'instead of|, not |not just' "$root/agents/scout.md")"
 check "scout.md sets effort medium" 1 "$(grep -c '^effort: medium$' "$root/agents/scout.md")"
+check "scout.md has no lookup" 0 "$(grep -ci 'lookup' "$root/agents/scout.md")"
+check "scout.md description starts with the new text" 1 "$(grep -c '^description: "Use for running tests, builds, lint or type checks' "$root/agents/scout.md")"
 check "README drops CLAUDE_CODE_SUBAGENT_MODEL=sonnet" 0 "$(grep -c 'CLAUDE_CODE_SUBAGENT_MODEL=sonnet' "$root/README.md")"
 check "README names 2.1.312" 1 "$(grep -c '2\.1\.312' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
 check "README names the fallback folder" 1 "$(grep -c 'TMPDIR:-/tmp}/headroom' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
