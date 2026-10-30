@@ -445,6 +445,18 @@ if git -C "$root/../.." show fee486f:plugins/headroom/rules.md > "$tmp/rules-0.5
 else
   echo "  FAIL  git show fee486f:plugins/headroom/rules.md failed"; fail=1
 fi
+# Each fixture below breaks exactly one rule, so deleting that rule from rules_check turns its case red.
+# 0.5 rules cut to headings, tier lines and 37k (under 4,800 bytes): only the forbidden-heading loop rejects it.
+if git -C "$root/../.." show fee486f:plugins/headroom/rules.md 2>/dev/null | sed 's/25k/37k/' \
+  | grep -E '^## |\*\*(haiku, medium|sonnet, medium|sonnet, high|opus, medium|opus, high)\*\*|37k' > "$tmp/rules-0.5-37k.md" \
+  && [ -s "$tmp/rules-0.5-37k.md" ]; then
+  if rules_check "$tmp/rules-0.5-37k.md"; then echo "  FAIL  rules check accepts the 0.5 headings with 37k"; fail=1; else echo "  ok    rules check rejects the 0.5 headings with 37k"; fi
+else
+  echo "  FAIL  building the 0.5 headings fixture failed"; fail=1
+fi
+# Current rules plus 5,000 bytes of padding: only the size check rejects it.
+{ cat "$root/rules.md"; head -c 5000 /dev/zero | tr '\0' x; echo; } > "$tmp/rules-padded.md"
+if rules_check "$tmp/rules-padded.md"; then echo "  FAIL  rules check accepts rules over 4,800 bytes"; fail=1; else echo "  ok    rules check rejects rules over 4,800 bytes"; fi
 check "scout.md has no 'instead of'" 0 "$(grep -cE 'instead of|, not |not just' "$root/agents/scout.md")"
 check "scout.md sets effort medium" 1 "$(grep -c '^effort: medium$' "$root/agents/scout.md")"
 check "scout.md has no lookup" 0 "$(grep -ci 'lookup' "$root/agents/scout.md")"
