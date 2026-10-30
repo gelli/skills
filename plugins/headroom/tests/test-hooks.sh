@@ -223,6 +223,12 @@ budget_matrix() { # label
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
   check "budget 1000"        nudge "$(HEADROOM_READ_BUDGET=1000 bout "$(bjson Read 1500)")"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  nt=$(HEADROOM_READ_BUDGET=1000 bout "$(bjson Read 1500)" >/dev/null; cat "$tmp/eraw")
+  case $nt in *'long runs (tests, builds, logs) and many-file sweeps'*) r=yes ;; *) r=no ;; esac
+  check "nudge names long runs" yes "$r"
+  case $nt in *'Remaining lookups'*) r=yes ;; *) r=no ;; esac
+  check "nudge drops old wording" no "$r"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
   check "budget 0 never"     quiet "$(HEADROOM_READ_BUDGET=0 bout "$(bjson Read 90000)")"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
   check "edit a"             quiet "$(eout "$(ejson Edit /w/a)")"
@@ -380,7 +386,7 @@ echo "injector"
 out=$(CLAUDE_PLUGIN_ROOT="$root" $inject </dev/null)
 case "$out" in "<headroom>"*"</headroom>") echo "  ok    wrapped in <headroom> tags" ;; *) echo "  FAIL  tag wrapping"; fail=1 ;; esac
 case "$out" in *"# Headroom"*) echo "  ok    contains rules.md" ;; *) echo "  FAIL  rules.md missing"; fail=1 ;; esac
-case "$out" in *"## Reading"*) echo "  ok    rules has ## Reading" ;; *) echo "  FAIL  ## Reading missing"; fail=1 ;; esac
+case "$out" in *"## Workflows"*) echo "  ok    rules has ## Workflows" ;; *) echo "  FAIL  ## Workflows missing"; fail=1 ;; esac
 case "$out" in *"headroom:scout"*) echo "  ok    rules names headroom:scout" ;; *) echo "  FAIL  headroom:scout missing"; fail=1 ;; esac
 case "$out" in *"Agent check"*"Workflow check"*) echo "  ok    preface names Agent and Workflow checks" ;; *) echo "  FAIL  preface lacks Agent and Workflow"; fail=1 ;; esac
 pre=${out%%"# Headroom"*}
@@ -416,23 +422,49 @@ check "README Limits names the Agent check" 1 "$(printf '%s\n' "$limits" | grep 
 check "README Limits names the Workflow check" 1 "$(printf '%s\n' "$limits" | grep -c 'Workflow check' | sed 's/^[1-9][0-9]*$/1/')"
 check "README Limits says the Workflow check leaves the effort value unchecked" 1 "$(printf '%s\n' "$limits" | grep -c 'leaves its value unchecked' | sed 's/^[1-9][0-9]*$/1/')"
 check "hooks.json description drops 'allowed model and effort'" 0 "$(grep -c 'allowed model and effort' "$root/hooks/hooks.json")"
-check "no contrastive phrasing" 0 "$(cat "$root/rules.md" "$root/agents/scout.md" "$root/hooks/inject-rules.sh" "$root/hooks/hooks.json" | grep -cE 'instead of|rather than|, not |not just')"
-rules_check() { # file: required headings and tier lines present, "## Large changes" absent
-  for s in '## Pre-authorisation' '## Spawn at all?' '## Reading' '## Tiers' '## Reviews' '## Parallelism' '## Every brief' '## Workflows' \
+check "no contrastive phrasing" 0 "$(cat "$root/README.md" "$root/rules.md" "$root/agents/scout.md" "$root/hooks/inject-rules.sh" "$root/hooks/hooks.json" | grep -cE 'instead of|rather than|, not |not just')"
+rules_check() { # file: required headings and tiers present; old headings and digits absent; under 4,800 bytes
+  for s in '## Spawn at all?' '## Tiers' '## Reviews' '## Workflows' \
     '**haiku, medium**' '**sonnet, medium**' '**sonnet, high**' '**opus, medium**' '**opus, high**'; do
     grep -qF -- "$s" "$1" || return 1
   done
-  ! grep -qF -- '## Large changes' "$1"
+  for s in '## Reading' '## Parallelism' '## Every brief' '## Pre-authorisation' '## Large changes'; do
+    ! grep -qF -- "$s" "$1" || return 1
+  done
+  ! grep -q '[0-9]' "$1" || return 1
+  [ "$(wc -c < "$1")" -lt 4800 ]
 }
 if rules_check "$root/rules.md"; then echo "  ok    rules sections and tiers present"; else echo "  FAIL  rules sections or tiers missing"; fail=1; fi
-# b4aaec7 is the 0.4 merge commit; origin/main holds the 0.5 rules after merge.
+# b4aaec7 is the 0.4 merge commit; fee486f is the 0.5 merge commit.
 if git -C "$root/../.." show b4aaec7:plugins/headroom/rules.md > "$tmp/rules-0.4.md" 2>/dev/null; then
   if rules_check "$tmp/rules-0.4.md"; then echo "  FAIL  rules check accepts the 0.4 rules"; fail=1; else echo "  ok    rules check rejects the 0.4 rules"; fi
 else
   echo "  FAIL  git show b4aaec7:plugins/headroom/rules.md failed"; fail=1
 fi
+if git -C "$root/../.." show fee486f:plugins/headroom/rules.md > "$tmp/rules-0.5.md" 2>/dev/null; then
+  if rules_check "$tmp/rules-0.5.md"; then echo "  FAIL  rules check accepts the 0.5 rules"; fail=1; else echo "  ok    rules check rejects the 0.5 rules"; fi
+else
+  echo "  FAIL  git show fee486f:plugins/headroom/rules.md failed"; fail=1
+fi
+# Each fixture below breaks exactly one rule, so deleting that rule from rules_check turns its case red.
+# 0.5 rules cut to headings and tier lines, digits removed (under 4,800 bytes): only the forbidden-heading loop rejects it.
+if git -C "$root/../.." show fee486f:plugins/headroom/rules.md 2>/dev/null \
+  | grep -E '^## |\*\*(haiku, medium|sonnet, medium|sonnet, high|opus, medium|opus, high)\*\*' | tr -d '0-9' > "$tmp/rules-0.5-headings.md" \
+  && [ -s "$tmp/rules-0.5-headings.md" ]; then
+  if rules_check "$tmp/rules-0.5-headings.md"; then echo "  FAIL  rules check accepts the 0.5 headings"; fail=1; else echo "  ok    rules check rejects the 0.5 headings"; fi
+else
+  echo "  FAIL  building the 0.5 headings fixture failed"; fail=1
+fi
+# Current rules plus one sentence with a token figure: only the digit check rejects it.
+{ cat "$root/rules.md"; echo 'A worker starts with about 37k tokens.'; } > "$tmp/rules-number.md"
+if rules_check "$tmp/rules-number.md"; then echo "  FAIL  rules check accepts rules with a number"; fail=1; else echo "  ok    rules check rejects rules with a number"; fi
+# Current rules plus 5,000 bytes of padding: only the size check rejects it.
+{ cat "$root/rules.md"; head -c 5000 /dev/zero | tr '\0' x; echo; } > "$tmp/rules-padded.md"
+if rules_check "$tmp/rules-padded.md"; then echo "  FAIL  rules check accepts rules over 4,800 bytes"; fail=1; else echo "  ok    rules check rejects rules over 4,800 bytes"; fi
 check "scout.md has no 'instead of'" 0 "$(grep -cE 'instead of|, not |not just' "$root/agents/scout.md")"
 check "scout.md sets effort medium" 1 "$(grep -c '^effort: medium$' "$root/agents/scout.md")"
+check "scout.md has no lookup" 0 "$(grep -ci 'lookup' "$root/agents/scout.md")"
+check "scout.md description starts with the new text" 1 "$(grep -c '^description: "Use for running tests, builds, lint or type checks' "$root/agents/scout.md")"
 check "README drops CLAUDE_CODE_SUBAGENT_MODEL=sonnet" 0 "$(grep -c 'CLAUDE_CODE_SUBAGENT_MODEL=sonnet' "$root/README.md")"
 check "README names 2.1.312" 1 "$(grep -c '2\.1\.312' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
 check "README names the fallback folder" 1 "$(grep -c 'TMPDIR:-/tmp}/headroom' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
@@ -442,7 +474,7 @@ check "README warns about saved scripts" 1 "$(grep -ciE 'saved workflow scripts?
 check "README Limits names effort" 1 "$(sed -n '/^## Limits/,/^## /p' "$root/README.md" | grep -c effort | sed 's/^[1-9][0-9]*$/1/')"
 check "no model-routing outside the headroom README" 0 "$(grep -rl model-routing "$root/.." 2>/dev/null | grep -vcE 'headroom/(README.md|tests/test-hooks.sh)')"
 
-check "plugin.json at 0.5.0" 0.5.0 "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$root/.claude-plugin/plugin.json")"
-check "marketplace headroom entry at 0.5.0" 0.5.0 "$(python3 -c 'import json,sys;print([p["version"] for p in json.load(open(sys.argv[1]))["plugins"] if p["name"]=="headroom"][0])' "$root/../../.claude-plugin/marketplace.json")"
+check "plugin.json at 0.6.0" 0.6.0 "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$root/.claude-plugin/plugin.json")"
+check "marketplace headroom entry at 0.6.0" 0.6.0 "$(python3 -c 'import json,sys;print([p["version"] for p in json.load(open(sys.argv[1]))["plugins"] if p["name"]=="headroom"][0])' "$root/../../.claude-plugin/marketplace.json")"
 
 [ $fail -eq 0 ] && echo "all hook tests passed" || { echo "hook tests FAILED"; exit 1; }
