@@ -1,6 +1,6 @@
 # headroom
 
-Keeps the orchestrator's context small. The main session reads and edits less itself and hands long runs, many-file sweeps and larger implementation work to cheaper subagents. Headroom replaces model-routing and the earlier headroom plugin.
+Keeps the orchestrator's context small. The main session reads and edits less itself and hands long runs, many-file sweeps and larger implementation work to cheaper subagents.
 
 ## What it does
 
