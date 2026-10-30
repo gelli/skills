@@ -24,10 +24,10 @@ Escalate one step on the ladder (haiku low, haiku medium, sonnet medium, sonnet 
 
 ## Reviews
 
-Scale to risk and default up: Haiku `medium` only for a single-file mechanical diff; Sonnet `medium` for quality and any multi-file diff; Sonnet `high` for spec conformance, security and concurrency. The final whole-branch review goes to a fresh Opus `high` subagent, since the session that directed the work is the worst-placed reviewer of it. When a plugin or skill asks you to pick a review model, this tiering wins. Ask reviewers for findings as `file:line` with a one-line fix.
+Scale to risk and default up: Sonnet `medium` for quality and any multi-file diff; Sonnet `high` for spec conformance, security and concurrency. A single-file mechanical diff is checked here against the literal change in its brief. The final whole-branch review goes to a fresh Opus `high` subagent, since the session that directed the work is the worst-placed reviewer of it. When a plugin or skill asks you to pick a review model, this tiering wins. Ask reviewers for findings as `file:line` with a one-line fix.
 
 ## Workflows
 
-A workflow starts when the user asks for one. Inside its script, every `agent()` call names `model` and `effort` literally in its options, chosen per Tiers; this rule takes precedence over the workflow authoring advice to omit them. When unsure, write `opus` and the session's effort. `fable` and `mythos` are never allowed. The Workflow hook checks the script before it runs; options built in a variable count as missing, so write them in each call.
+A workflow starts when the user asks for one. Inside its script, every `agent()` call names `model` and `effort` literally in its options, chosen per Tiers; this rule takes precedence over the workflow authoring advice to omit them. A stage that fits no tier gets `opus` at the session's effort. `fable` and `mythos` are never allowed. The Workflow hook checks the script before it runs; options built in a variable count as missing, so write them in each call.
 
 When a task has many independent pieces (a sweep or audit across many files, a migration, a plan whose steps each get an implementer and a verifier), suggest a workflow to the user in one or two sentences: what it would fan out, roughly how many agents on which models, and that "use a workflow" starts it. Suggest it once per task; the user's answer stands.
