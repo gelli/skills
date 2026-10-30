@@ -223,6 +223,12 @@ budget_matrix() { # label
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
   check "budget 1000"        nudge "$(HEADROOM_READ_BUDGET=1000 bout "$(bjson Read 1500)")"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
+  nt=$(HEADROOM_READ_BUDGET=1000 bout "$(bjson Read 1500)" >/dev/null; cat "$tmp/eraw")
+  case $nt in *'long runs (tests, builds, logs) and many-file sweeps'*) r=yes ;; *) r=no ;; esac
+  check "nudge names long runs" yes "$r"
+  case $nt in *'Remaining lookups'*) r=yes ;; *) r=no ;; esac
+  check "nudge drops old wording" no "$r"
+  BD=$(mktemp -d "$tmp/bd.XXXXXX")
   check "budget 0 never"     quiet "$(HEADROOM_READ_BUDGET=0 bout "$(bjson Read 90000)")"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
   check "edit a"             quiet "$(eout "$(ejson Edit /w/a)")"

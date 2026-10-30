@@ -3,7 +3,8 @@
 # Edit, Write, NotebookEdit and every mcp__ tool (anchored matcher). Two budgets per prompt, each nudging once:
 # - reading: counts the bytes of tool output the main session took in since
 #   the last prompt and, once the total passes the reading budget, nudges
-#   toward headroom:scout.
+#   to send the remaining long runs (tests, builds, logs) and many-file
+#   sweeps to headroom:scout.
 # - doing: counts distinct files edited (Edit, Write: tool_input.file_path;
 #   NotebookEdit: tool_input.notebook_path) and, once the count reaches the
 #   edit budget, nudges to hand the remaining implementation to a worker.
@@ -234,7 +235,7 @@ if [ "$emit" -eq 1 ]; then
   # ~4 bytes per token.
   kt=$((read_bytes / 4096))
   [ "$kt" -gt 0 ] || kt=1
-  printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"headroom: about %sk tokens of tool output entered the main context since the last prompt. Remaining lookups for this prompt fit headroom:scout, which reads in its own context and returns a short report."}}\n' "$kt"
+  printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"headroom: about %sk tokens of tool output entered the main context since the last prompt. Send the remaining long runs (tests, builds, logs) and many-file sweeps for this prompt to headroom:scout, which reads in its own context and returns a short report."}}\n' "$kt"
 fi
 if [ "$emit_edit" -eq 1 ]; then
   printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"headroom: this prompt has now edited %s files in the main session. Hand the remaining implementation to a worker (general-purpose, model sonnet, effort medium) with a brief, and review its diff here."}}\n' "$n_edited"
