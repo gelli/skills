@@ -380,7 +380,7 @@ echo "injector"
 out=$(CLAUDE_PLUGIN_ROOT="$root" $inject </dev/null)
 case "$out" in "<headroom>"*"</headroom>") echo "  ok    wrapped in <headroom> tags" ;; *) echo "  FAIL  tag wrapping"; fail=1 ;; esac
 case "$out" in *"# Headroom"*) echo "  ok    contains rules.md" ;; *) echo "  FAIL  rules.md missing"; fail=1 ;; esac
-case "$out" in *"## Reading"*) echo "  ok    rules has ## Reading" ;; *) echo "  FAIL  ## Reading missing"; fail=1 ;; esac
+case "$out" in *"## Workflows"*) echo "  ok    rules has ## Workflows" ;; *) echo "  FAIL  ## Workflows missing"; fail=1 ;; esac
 case "$out" in *"headroom:scout"*) echo "  ok    rules names headroom:scout" ;; *) echo "  FAIL  headroom:scout missing"; fail=1 ;; esac
 case "$out" in *"Agent check"*"Workflow check"*) echo "  ok    preface names Agent and Workflow checks" ;; *) echo "  FAIL  preface lacks Agent and Workflow"; fail=1 ;; esac
 pre=${out%%"# Headroom"*}
@@ -417,19 +417,27 @@ check "README Limits names the Workflow check" 1 "$(printf '%s\n' "$limits" | gr
 check "README Limits says the Workflow check leaves the effort value unchecked" 1 "$(printf '%s\n' "$limits" | grep -c 'leaves its value unchecked' | sed 's/^[1-9][0-9]*$/1/')"
 check "hooks.json description drops 'allowed model and effort'" 0 "$(grep -c 'allowed model and effort' "$root/hooks/hooks.json")"
 check "no contrastive phrasing" 0 "$(cat "$root/rules.md" "$root/agents/scout.md" "$root/hooks/inject-rules.sh" "$root/hooks/hooks.json" | grep -cE 'instead of|rather than|, not |not just')"
-rules_check() { # file: required headings and tier lines present, "## Large changes" absent
-  for s in '## Pre-authorisation' '## Spawn at all?' '## Reading' '## Tiers' '## Reviews' '## Parallelism' '## Every brief' '## Workflows' \
+rules_check() { # file: required headings, tiers and 37k present; old headings absent; under 4,800 bytes
+  for s in '## Spawn at all?' '## Tiers' '## Reviews' '## Workflows' '37k' \
     '**haiku, medium**' '**sonnet, medium**' '**sonnet, high**' '**opus, medium**' '**opus, high**'; do
     grep -qF -- "$s" "$1" || return 1
   done
-  ! grep -qF -- '## Large changes' "$1"
+  for s in '## Reading' '## Parallelism' '## Every brief' '## Pre-authorisation' '## Large changes'; do
+    ! grep -qF -- "$s" "$1" || return 1
+  done
+  [ "$(wc -c < "$1")" -lt 4800 ]
 }
 if rules_check "$root/rules.md"; then echo "  ok    rules sections and tiers present"; else echo "  FAIL  rules sections or tiers missing"; fail=1; fi
-# b4aaec7 is the 0.4 merge commit; origin/main holds the 0.5 rules after merge.
+# b4aaec7 is the 0.4 merge commit; fee486f is the 0.5 merge commit.
 if git -C "$root/../.." show b4aaec7:plugins/headroom/rules.md > "$tmp/rules-0.4.md" 2>/dev/null; then
   if rules_check "$tmp/rules-0.4.md"; then echo "  FAIL  rules check accepts the 0.4 rules"; fail=1; else echo "  ok    rules check rejects the 0.4 rules"; fi
 else
   echo "  FAIL  git show b4aaec7:plugins/headroom/rules.md failed"; fail=1
+fi
+if git -C "$root/../.." show fee486f:plugins/headroom/rules.md > "$tmp/rules-0.5.md" 2>/dev/null; then
+  if rules_check "$tmp/rules-0.5.md"; then echo "  FAIL  rules check accepts the 0.5 rules"; fail=1; else echo "  ok    rules check rejects the 0.5 rules"; fi
+else
+  echo "  FAIL  git show fee486f:plugins/headroom/rules.md failed"; fail=1
 fi
 check "scout.md has no 'instead of'" 0 "$(grep -cE 'instead of|, not |not just' "$root/agents/scout.md")"
 check "scout.md sets effort medium" 1 "$(grep -c '^effort: medium$' "$root/agents/scout.md")"
