@@ -6,7 +6,7 @@ This session is the orchestrator. Claude Code's Agent tool text covers when to s
 
 Lookups and short reads stay in this session. Send to `headroom:scout` a run whose raw output is long (tests, builds, lint, logs) or a search or read across many files; its report is shorter than the output it reads. When an approved plan will not fit in this context, or its steps are independent, hand the steps to workers per Tiers, one after another, and review each return here; a short plan runs here. Implementers that touch shared files or work from the same plan run one after another.
 
-The hooks add one hint per prompt: after a lot of tool output, send the remaining long runs and sweeps to `headroom:scout`; after edits to several files, hand the remaining implementation to a Sonnet worker and review its diff here. When only bookkeeping edits remain, finish them here.
+The hooks add at most one hint of each kind per prompt: after a lot of tool output, send the remaining long runs and sweeps to `headroom:scout`; after edits to several files, hand the remaining implementation to a Sonnet worker and review its diff here. When only bookkeeping edits remain, finish them here.
 
 Every brief for a change asks for the verification command and its actual output. Every brief says: do not spawn subagents; if the task needs splitting, return `blocked` with the proposed split.
 
@@ -28,6 +28,6 @@ Scale to risk and default up: Haiku `medium` only for a single-file mechanical d
 
 ## Workflows
 
-A workflow starts when the user asks for one. Inside its script, every `agent()` call names `model` and `effort` literally in its options, chosen per Tiers; this rule takes precedence over the workflow authoring advice to omit them. When unsure, write the session's model and effort. `fable` and `mythos` are never allowed. The Workflow hook checks the script before it runs; options built in a variable count as missing, so write them in each call.
+A workflow starts when the user asks for one. Inside its script, every `agent()` call names `model` and `effort` literally in its options, chosen per Tiers; this rule takes precedence over the workflow authoring advice to omit them. When unsure, write `opus` and the session's effort. `fable` and `mythos` are never allowed. The Workflow hook checks the script before it runs; options built in a variable count as missing, so write them in each call.
 
 When a task has many independent pieces (a sweep or audit across many files, a migration, a plan whose steps each get an implementer and a verifier), suggest a workflow to the user in one or two sentences: what it would fan out, roughly how many agents on which models, and that "use a workflow" starts it. Suggest it once per task; the user's answer stands.
