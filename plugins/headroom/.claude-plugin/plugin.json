@@ -1,7 +1,7 @@
 {
   "name": "headroom",
-  "version": "0.4.0",
-  "description": "Keeps the orchestrator's context small: tier rules every session, model checks on Agent and Workflow spawns, a Haiku scout, and once-per-prompt nudges when the main session reads or edits too much itself.",
+  "version": "0.5.0",
+  "description": "Keeps the orchestrator's context small: tier rules every session, model and effort checks on Agent and Workflow spawns, a Haiku scout, and once-per-prompt nudges when the main session reads or edits too much itself.",
   "author": {
     "name": "Chris Heizmann"
   },

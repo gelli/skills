@@ -2,6 +2,7 @@
 name: scout
 description: "Use for a repo-wide search or finding code whose location is unknown, running tests/builds/lint/type-checks, reading or analysing logs, reading more than about 3 files or any file over about 500 lines to answer a question, web and docs lookups, or summarising something long. Single-shape jobs; changes no project files."
 model: haiku
+effort: medium
 maxTurns: 30
 disallowedTools: Edit, Write, NotebookEdit, Agent, Workflow
 ---

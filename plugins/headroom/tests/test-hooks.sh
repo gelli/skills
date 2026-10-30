@@ -36,14 +36,32 @@ run_matrix() { # label
   check "model in prompt text only" deny  "$(decision '{"tool_input":{"prompt":"model: haiku","subagent_type":"general-purpose"}}')"
   check "model fable"               deny  "$(decision '{"tool_input":{"model":"fable"}}')"
   check "fork with model"           deny  "$(decision '{"tool_input":{"subagent_type":"fork","model":"sonnet"}}')"
-  check "model haiku"               allow "$(decision '{"tool_input":{"model":"haiku"}}')"
-  check "model sonnet"              allow "$(decision '{"tool_input":{"model":"sonnet","subagent_type":"browser-scout"}}')"
-  check "model opus"                allow "$(decision '{"tool_input":{"model":"opus"}}')"
+  check "model fable with effort"   deny  "$(decision '{"tool_input":{"model":"fable","effort":"low"}}')"
+  check "fork with effort"          deny  "$(decision '{"tool_input":{"subagent_type":"fork","model":"sonnet","effort":"low"}}')"
+  check "effort only, no model"     deny  "$(decision '{"tool_input":{"effort":"low"}}')"
+  check "model haiku"               allow "$(decision '{"tool_input":{"model":"haiku","effort":"low"}}')"
+  check "model sonnet"              allow "$(decision '{"tool_input":{"model":"sonnet","effort":"medium","subagent_type":"browser-scout"}}')"
+  check "model opus"                allow "$(decision '{"tool_input":{"model":"opus","effort":"high"}}')"
+  check "opus xhigh"                allow "$(decision '{"tool_input":{"model":"opus","effort":"xhigh"}}')"
+  check "opus max"                  allow "$(decision '{"tool_input":{"model":"opus","effort":"max"}}')"
+  check "sonnet, no effort"         deny  "$(decision '{"tool_input":{"model":"sonnet"}}')"
+  check "sonnet, null effort"       deny  "$(decision '{"tool_input":{"model":"sonnet","effort":null}}')"
+  check "sonnet, effort extreme"    deny  "$(decision '{"tool_input":{"model":"sonnet","effort":"extreme"}}')"
+  check "sonnet, effort High"       deny  "$(decision '{"tool_input":{"model":"sonnet","effort":"High"}}')"
+  check "sonnet, empty effort"      deny  "$(decision '{"tool_input":{"model":"sonnet","effort":""}}')"
   check "scout, no model"           deny  "$(decision '{"tool_input":{"subagent_type":"scout"}}')"
-  check "headroom:scout, no model"  allow "$(decision '{"tool_input":{"subagent_type":"headroom:scout"}}')"
-  check "headroom:scout, null model" allow "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":null}}')"
+  check "headroom:scout, no model"  deny  "$(decision '{"tool_input":{"subagent_type":"headroom:scout"}}')"
+  check "headroom:scout, null model" deny "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":null}}')"
+  check "headroom:scout, haiku, no effort" deny "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":"haiku"}}')"
+  check "headroom:scout, haiku, medium" allow "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":"haiku","effort":"medium"}}')"
   check "headroom:scout, model fable" deny "$(decision '{"tool_input":{"subagent_type":"headroom:scout","model":"fable"}}')"
   check "general-purpose, no model" deny  "$(decision '{"tool_input":{"subagent_type":"general-purpose"}}')"
+  check "effort is a number"        deny  "$(decision '{"tool_input":{"model":"sonnet","effort":5}}')"
+  check "fork, effort is a number"  deny  "$(decision '{"tool_input":{"subagent_type":"fork","effort":5}}')"
+  check "effort is an array"        deny  "$(decision '{"tool_input":{"effort":["x"]}}')"
+  check "effort is an object"       deny  "$(decision '{"tool_input":{"model":"sonnet","effort":{"a":1}}}')"
+  check "effort with newline"       deny  "$(decision '{"tool_input":{"model":"sonnet","effort":"high\nx"}}')"
+  check "model with newline"        deny  "$(decision '{"tool_input":{"model":"sonnet\nhigh"}}')"
   check "unparseable input"         allow "$(decision 'not json')"
   check "empty input"               allow "$(decision '')"
 }
@@ -60,7 +78,7 @@ fi
 if command -v python3 >/dev/null 2>&1; then
   HEADROOM_PARSER=python3 run_matrix "guard via python3"
   echo "  python3 path really parses:"
-  out=$(printf '{"tool_input":{"model":"opus"}}' | HEADROOM_PARSER=python3 $guard 2>&1)
+  out=$(printf '{"tool_input":{"model":"opus","effort":"high"}}' | HEADROOM_PARSER=python3 $guard 2>&1)
   check "no parse-failure note on stderr" "" "$out"
 else
   echo "python3 not installed; skipping python3 path"
@@ -88,27 +106,44 @@ workflow_matrix() { # label
   check "model split across lines"  deny  "$(wf_decision '{"tool_input":{"script":"agent(\"x\", { model:\n  \u0027fable\u0027 })"}}')"
   check "scriptPath with fable"     deny  "$(wf_decision "{\"tool_input\":{\"scriptPath\":\"$tmp/fable.js\"}}")"
   check "named workflow"            allow "$(wf_decision '{"tool_input":{"name":"review-changes"}}')"
-  check "all agents sonnet"         allow "$(wf_decision '{"tool_input":{"script":"agent(\"a\", { model: \u0027sonnet\u0027 }); agent(\"b\", { model: \u0027sonnet\u0027 })"}}')"
+  check "all agents sonnet"         allow "$(wf_decision '{"tool_input":{"script":"agent(\"a\", { model: \u0027sonnet\u0027, effort: \u0027medium\u0027 }); agent(\"b\", { model: \u0027sonnet\u0027, effort: \u0027medium\u0027 })"}}')"
   check "unparseable input"         allow "$(wf_decision 'not json')"
   wfscript "agent without options"   deny  "agent('do x')"
   wfscript "agent without model"     deny  "agent(p, {label: 'a'})"
   wfscript "one of two lacks model"  deny  "agent(p, {model: 'haiku'}); agent(q, {label: 'b'})"
   wfscript "multi-line with model"   allow "agent(p, {
  label: 'a',
- model: 'haiku'
+ model: 'haiku',
+ effort: 'medium'
 })"
   wfscript "no agent call"           allow "const x = 1; log(x)"
   wfscript "reagent without model"   allow "reagent(p, {label: 'a'})"
   wfscript "agent after punctuation" deny  "await Promise.all([agent(p), agent(q, {model: 'sonnet'})])"
-  wfscript "template text with agent word" allow 'const t = `QEMU guest agent (qemu-ga)`; agent(p, {model: '"'haiku'"'})'
-  wfscript "string literal mentions call"  allow 'const t = "agent(prompt,{model,schema})"; agent(p, {model: '"'sonnet'"'})'
-  wfscript "shorthand model, more keys"    allow 'agent(p, { label, phase, model, schema })'
-  wfscript "shorthand model, alone"        allow 'agent(p, {model})'
+  wfscript "template text with agent word" allow 'const t = `QEMU guest agent (qemu-ga)`; agent(p, {model: '"'haiku'"', effort: '"'medium'"'})'
+  wfscript "string literal mentions call"  allow 'const t = "agent(prompt,{model,schema})"; agent(p, {model: '"'sonnet'"', effort: '"'medium'"'})'
+  wfscript "shorthand model, more keys"    allow 'agent(p, { label, phase, model, effort, schema })'
+  wfscript "shorthand model, alone"        allow 'agent(p, {model, effort: '"'medium'"'})'
   wfscript "model only in line comment"    deny  "agent(p, {label:'x'}) // model: haiku"
   wfscript "model only in block comment"   deny  "agent(p, {label:'x'}) /* model: haiku */"
   wfscript "model only in string argument" deny  "agent('choose a model: any', {label:'x'})"
-  wfscript "template with expression"      allow 'agent(p, {model: `${m}`})'
-  wfscript "model key in template expr"    allow 'agent(`x ${y}`, {model: '"'haiku'"'})'
+  wfscript "template with expression"      allow 'agent(p, {model: `${m}`, effort: '"'medium'"'})'
+  wfscript "model key in template expr"    allow 'agent(`x ${y}`, {model: '"'haiku'"', effort: '"'medium'"'})'
+  wfscript "model, no effort"              deny  "agent(p, {model: 'haiku'})"
+  wfscript "second call lacks effort"      deny  "agent(p, {model: 'haiku', effort: 'low'}); agent(q, {model: 'sonnet'})"
+  wfscript "effort only in line comment"   deny  "agent(p, {model: 'haiku'}) // effort: 'low'"
+  wfscript "effort only in block comment"  deny  "agent(p, {model: 'haiku'}) /* effort: 'low' */"
+  wfscript "effort only in string argument" deny "agent('use effort: high', {model: 'haiku'})"
+  wfscript "shorthand model and effort"    allow "agent(p, {model, effort})"
+  wfscript "shorthand among other keys"    allow "agent(p, { label, model, effort, schema })"
+  wfscript "model and effort on own lines" allow "agent(p, {
+ model: 'haiku',
+ effort: 'low'
+})"
+  wfscript "keys literal, values variables" allow "agent(p, {model: m, effort: e})"
+  printf "agent(p, {model: 'haiku'})" > "$tmp/noeffort.js"
+  out=$(printf '{"tool_input":{"scriptPath":"%s"}}' "$tmp/noeffort.js" | $wfguard 2>/dev/null)
+  check "no-effort reason names the rule" 1 "$(printf '%s' "$out" | grep -c 'names no effort')"
+  check "no-effort reason lists all levels" 1 "$(printf '%s' "$out" | grep -c 'low, medium, high, xhigh or max')"
   printf "agent(p, {label: 'a'})" > "$tmp/nomodel.js"
   reason=$(printf '{"tool_input":{"scriptPath":"%s"}}' "$tmp/nomodel.js" | $wfguard 2>/dev/null | grep -c 'write the model literally')
   check "deny reason names the rule" 1 "$reason"
@@ -136,6 +171,7 @@ bjson() {
 # bout <json> -> nudge | quiet (data dir from $BD)
 bout() {
   out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$BD" $budget 2>/dev/null)
+  printf '%s' "$out" >"$tmp/eraw"
   case "$out" in
     "") printf 'quiet' ;;
     *'"hookEventName":"PostToolUse"'*'headroom:scout'*) printf 'nudge' ;;
@@ -154,6 +190,7 @@ ejson() {
 # eout <json> -> edit | quiet | other (data dir from $BD)
 eout() {
   out=$(printf '%s' "$1" | CLAUDE_PLUGIN_DATA="$BD" $budget 2>/dev/null)
+  printf '%s' "$out" >"$tmp/eraw"
   case "$out" in
     "") printf 'quiet' ;;
     *'"hookEventName":"PostToolUse"'*'general-purpose'*'sonnet'*) printf 'edit' ;;
@@ -193,6 +230,7 @@ budget_matrix() { # label
   check "edit a again"       quiet "$(eout "$(ejson Edit /w/a)")"
   check "edit b (2 distinct)" quiet "$(eout "$(ejson Edit /w/b)")"
   check "edit c nudges"      edit "$(eout "$(ejson Edit /w/c)")"
+  case "$(cat "$tmp/eraw")" in *"model sonnet, effort medium"*) echo "  ok    doing hint names model sonnet, effort medium" ;; *) echo "  FAIL  doing hint lacks model sonnet, effort medium"; fail=1 ;; esac
   check "write d stays quiet" quiet "$(eout "$(ejson Write /w/d)")"
   BD=$(mktemp -d "$tmp/bd.XXXXXX")
   eout "$(ejson Edit /w/a)" >/dev/null; eout "$(ejson Edit /w/b)" >/dev/null
@@ -345,6 +383,9 @@ case "$out" in *"# Headroom"*) echo "  ok    contains rules.md" ;; *) echo "  FA
 case "$out" in *"## Reading"*) echo "  ok    rules has ## Reading" ;; *) echo "  FAIL  ## Reading missing"; fail=1 ;; esac
 case "$out" in *"headroom:scout"*) echo "  ok    rules names headroom:scout" ;; *) echo "  FAIL  headroom:scout missing"; fail=1 ;; esac
 case "$out" in *"Agent check"*"Workflow check"*) echo "  ok    preface names Agent and Workflow checks" ;; *) echo "  FAIL  preface lacks Agent and Workflow"; fail=1 ;; esac
+pre=${out%%"# Headroom"*}
+case "$pre" in *"Agent check"*effort*"Workflow check"*effort*) echo "  ok    preface names effort under both checks" ;; *) echo "  FAIL  preface lacks effort under both checks"; fail=1 ;; esac
+case "$pre" in *scout*) echo "  FAIL  preface contains scout"; fail=1 ;; *) echo "  ok    preface does not contain scout" ;; esac
 check "empty plugin root prints nothing" "" "$(CLAUDE_PLUGIN_ROOT=/nonexistent $inject </dev/null)"
 
 echo "texts"
@@ -357,15 +398,51 @@ for in in '{"tool_input":{"subagent_type":"fork","model":"sonnet"}}' '{"tool_inp
   r=$(printf '%s' "$in" | $guard 2>/dev/null)
   case "$r" in *haiku*sonnet*opus*) echo "  ok    deny reason names haiku, sonnet, opus" ;; *) echo "  FAIL  deny reason lacks the three models: $in"; fail=1 ;; esac
 done
+for in in '{"tool_input":{"subagent_type":"fork","model":"sonnet"}}' '{"tool_input":{}}' '{"tool_input":{"model":"fable"}}' '{"tool_input":{"model":"sonnet"}}' '{"tool_input":{"model":"sonnet","effort":"extreme"}}'; do
+  r=$(printf '%s' "$in" | $guard 2>/dev/null)
+  ok=1
+  for w in haiku sonnet opus low medium high xhigh max; do case "$r" in *"$w"*) ;; *) ok=0 ;; esac; done
+  if [ $ok = 1 ]; then echo "  ok    deny reason names models and all five levels"; else echo "  FAIL  deny reason lacks a model or level: $in"; fail=1; fi
+done
+r=$(printf '{"tool_input":{"model":"sonnet"}}' | $guard 2>/dev/null)
+case "$r" in *'"headroom:'*effort*) echo "  ok    missing-effort reason starts with headroom: and names effort" ;; *) echo "  FAIL  missing-effort reason text"; fail=1 ;; esac
 case "$out" in *"Agent check refuses"*mythos*"Workflow check"*) echo "  FAIL  preface claims the Agent check refuses mythos"; fail=1 ;; *) echo "  ok    preface makes no mythos claim for the Agent check" ;; esac
 case "$out" in *"Workflow check"*mythos*) echo "  ok    preface lists mythos under the Workflow check" ;; *) echo "  FAIL  preface lacks mythos under the Workflow check"; fail=1 ;; esac
 d=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["description"])' "$root/hooks/hooks.json" 2>/dev/null)
 case "$d" in *Workflow*) echo "  ok    description field names Workflow" ;; *) echo "  FAIL  description field lacks Workflow"; fail=1 ;; esac
-case "$(cat "$root/rules.md")" in *HEADROOM_READ_BUDGET*HEADROOM_EDIT_BUDGET*) echo "  ok    rules names both budget settings" ;; *) echo "  FAIL  rules lacks budget settings"; fail=1 ;; esac
+case "$d" in *effort*) echo "  ok    description field names effort" ;; *) echo "  FAIL  description field lacks effort"; fail=1 ;; esac
+limits=$(sed -n '/^## Limits/,/^## Test/p' "$root/README.md")
+check "README Limits names the Agent check" 1 "$(printf '%s\n' "$limits" | grep -c 'Agent check' | sed 's/^[1-9][0-9]*$/1/')"
+check "README Limits names the Workflow check" 1 "$(printf '%s\n' "$limits" | grep -c 'Workflow check' | sed 's/^[1-9][0-9]*$/1/')"
+check "README Limits says the Workflow check leaves the effort value unchecked" 1 "$(printf '%s\n' "$limits" | grep -c 'leaves its value unchecked' | sed 's/^[1-9][0-9]*$/1/')"
+check "hooks.json description drops 'allowed model and effort'" 0 "$(grep -c 'allowed model and effort' "$root/hooks/hooks.json")"
+check "no contrastive phrasing" 0 "$(cat "$root/rules.md" "$root/agents/scout.md" "$root/hooks/inject-rules.sh" "$root/hooks/hooks.json" | grep -cE 'instead of|rather than|, not |not just')"
+rules_check() { # file: required headings and tier lines present, "## Large changes" absent
+  for s in '## Pre-authorisation' '## Spawn at all?' '## Reading' '## Tiers' '## Reviews' '## Parallelism' '## Every brief' '## Workflows' \
+    '**haiku, medium**' '**sonnet, medium**' '**sonnet, high**' '**opus, medium**' '**opus, high**'; do
+    grep -qF -- "$s" "$1" || return 1
+  done
+  ! grep -qF -- '## Large changes' "$1"
+}
+if rules_check "$root/rules.md"; then echo "  ok    rules sections and tiers present"; else echo "  FAIL  rules sections or tiers missing"; fail=1; fi
+# b4aaec7 is the 0.4 merge commit; origin/main holds the 0.5 rules after merge.
+if git -C "$root/../.." show b4aaec7:plugins/headroom/rules.md > "$tmp/rules-0.4.md" 2>/dev/null; then
+  if rules_check "$tmp/rules-0.4.md"; then echo "  FAIL  rules check accepts the 0.4 rules"; fail=1; else echo "  ok    rules check rejects the 0.4 rules"; fi
+else
+  echo "  FAIL  git show b4aaec7:plugins/headroom/rules.md failed"; fail=1
+fi
 check "scout.md has no 'instead of'" 0 "$(grep -cE 'instead of|, not |not just' "$root/agents/scout.md")"
+check "scout.md sets effort medium" 1 "$(grep -c '^effort: medium$' "$root/agents/scout.md")"
 check "README drops CLAUDE_CODE_SUBAGENT_MODEL=sonnet" 0 "$(grep -c 'CLAUDE_CODE_SUBAGENT_MODEL=sonnet' "$root/README.md")"
 check "README names 2.1.312" 1 "$(grep -c '2\.1\.312' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
 check "README names the fallback folder" 1 "$(grep -c 'TMPDIR:-/tmp}/headroom' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
+check "README drops the scout model exception" 0 "$(grep -c 'passes without a' "$root/README.md")"
+check "README drops workflow pre-authorisation" 0 "$(grep -c 'pre-authorise Haiku, Sonnet and Opus spawns, workflows' "$root/README.md")"
+check "README warns about saved scripts" 1 "$(grep -ciE 'saved workflow scripts?.*effort|effort.*saved workflow scripts?' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
+check "README Limits names effort" 1 "$(sed -n '/^## Limits/,/^## /p' "$root/README.md" | grep -c effort | sed 's/^[1-9][0-9]*$/1/')"
 check "no model-routing outside the headroom README" 0 "$(grep -rl model-routing "$root/.." 2>/dev/null | grep -vcE 'headroom/(README.md|tests/test-hooks.sh)')"
+
+check "plugin.json at 0.5.0" 0.5.0 "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$root/.claude-plugin/plugin.json")"
+check "marketplace headroom entry at 0.5.0" 0.5.0 "$(python3 -c 'import json,sys;print([p["version"] for p in json.load(open(sys.argv[1]))["plugins"] if p["name"]=="headroom"][0])' "$root/../../.claude-plugin/marketplace.json")"
 
 [ $fail -eq 0 ] && echo "all hook tests passed" || { echo "hook tests FAILED"; exit 1; }
