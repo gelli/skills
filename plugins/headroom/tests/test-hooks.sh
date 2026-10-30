@@ -422,7 +422,7 @@ check "README Limits names the Agent check" 1 "$(printf '%s\n' "$limits" | grep 
 check "README Limits names the Workflow check" 1 "$(printf '%s\n' "$limits" | grep -c 'Workflow check' | sed 's/^[1-9][0-9]*$/1/')"
 check "README Limits says the Workflow check leaves the effort value unchecked" 1 "$(printf '%s\n' "$limits" | grep -c 'leaves its value unchecked' | sed 's/^[1-9][0-9]*$/1/')"
 check "hooks.json description drops 'allowed model and effort'" 0 "$(grep -c 'allowed model and effort' "$root/hooks/hooks.json")"
-check "no contrastive phrasing" 0 "$(cat "$root/rules.md" "$root/agents/scout.md" "$root/hooks/inject-rules.sh" "$root/hooks/hooks.json" | grep -cE 'instead of|rather than|, not |not just')"
+check "no contrastive phrasing" 0 "$(cat "$root/README.md" "$root/rules.md" "$root/agents/scout.md" "$root/hooks/inject-rules.sh" "$root/hooks/hooks.json" | grep -cE 'instead of|rather than|, not |not just')"
 rules_check() { # file: required headings, tiers and 37k present; old headings absent; under 4,800 bytes
   for s in '## Spawn at all?' '## Tiers' '## Reviews' '## Workflows' '37k' \
     '**haiku, medium**' '**sonnet, medium**' '**sonnet, high**' '**opus, medium**' '**opus, high**'; do
