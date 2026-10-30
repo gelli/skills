@@ -423,14 +423,15 @@ check "README Limits names the Workflow check" 1 "$(printf '%s\n' "$limits" | gr
 check "README Limits says the Workflow check leaves the effort value unchecked" 1 "$(printf '%s\n' "$limits" | grep -c 'leaves its value unchecked' | sed 's/^[1-9][0-9]*$/1/')"
 check "hooks.json description drops 'allowed model and effort'" 0 "$(grep -c 'allowed model and effort' "$root/hooks/hooks.json")"
 check "no contrastive phrasing" 0 "$(cat "$root/README.md" "$root/rules.md" "$root/agents/scout.md" "$root/hooks/inject-rules.sh" "$root/hooks/hooks.json" | grep -cE 'instead of|rather than|, not |not just')"
-rules_check() { # file: required headings, tiers and 37k present; old headings absent; under 4,800 bytes
-  for s in '## Spawn at all?' '## Tiers' '## Reviews' '## Workflows' '37k' \
+rules_check() { # file: required headings and tiers present; old headings and digits absent; under 4,800 bytes
+  for s in '## Spawn at all?' '## Tiers' '## Reviews' '## Workflows' \
     '**haiku, medium**' '**sonnet, medium**' '**sonnet, high**' '**opus, medium**' '**opus, high**'; do
     grep -qF -- "$s" "$1" || return 1
   done
   for s in '## Reading' '## Parallelism' '## Every brief' '## Pre-authorisation' '## Large changes'; do
     ! grep -qF -- "$s" "$1" || return 1
   done
+  ! grep -q '[0-9]' "$1" || return 1
   [ "$(wc -c < "$1")" -lt 4800 ]
 }
 if rules_check "$root/rules.md"; then echo "  ok    rules sections and tiers present"; else echo "  FAIL  rules sections or tiers missing"; fail=1; fi
@@ -446,14 +447,17 @@ else
   echo "  FAIL  git show fee486f:plugins/headroom/rules.md failed"; fail=1
 fi
 # Each fixture below breaks exactly one rule, so deleting that rule from rules_check turns its case red.
-# 0.5 rules cut to headings, tier lines and 37k (under 4,800 bytes): only the forbidden-heading loop rejects it.
-if git -C "$root/../.." show fee486f:plugins/headroom/rules.md 2>/dev/null | sed 's/25k/37k/' \
-  | grep -E '^## |\*\*(haiku, medium|sonnet, medium|sonnet, high|opus, medium|opus, high)\*\*|37k' > "$tmp/rules-0.5-37k.md" \
-  && [ -s "$tmp/rules-0.5-37k.md" ]; then
-  if rules_check "$tmp/rules-0.5-37k.md"; then echo "  FAIL  rules check accepts the 0.5 headings with 37k"; fail=1; else echo "  ok    rules check rejects the 0.5 headings with 37k"; fi
+# 0.5 rules cut to headings and tier lines, digits removed (under 4,800 bytes): only the forbidden-heading loop rejects it.
+if git -C "$root/../.." show fee486f:plugins/headroom/rules.md 2>/dev/null \
+  | grep -E '^## |\*\*(haiku, medium|sonnet, medium|sonnet, high|opus, medium|opus, high)\*\*' | tr -d '0-9' > "$tmp/rules-0.5-headings.md" \
+  && [ -s "$tmp/rules-0.5-headings.md" ]; then
+  if rules_check "$tmp/rules-0.5-headings.md"; then echo "  FAIL  rules check accepts the 0.5 headings"; fail=1; else echo "  ok    rules check rejects the 0.5 headings"; fi
 else
   echo "  FAIL  building the 0.5 headings fixture failed"; fail=1
 fi
+# Current rules plus one sentence with a token figure: only the digit check rejects it.
+{ cat "$root/rules.md"; echo 'A worker starts with about 37k tokens.'; } > "$tmp/rules-number.md"
+if rules_check "$tmp/rules-number.md"; then echo "  FAIL  rules check accepts rules with a number"; fail=1; else echo "  ok    rules check rejects rules with a number"; fi
 # Current rules plus 5,000 bytes of padding: only the size check rejects it.
 { cat "$root/rules.md"; head -c 5000 /dev/zero | tr '\0' x; echo; } > "$tmp/rules-padded.md"
 if rules_check "$tmp/rules-padded.md"; then echo "  FAIL  rules check accepts rules over 4,800 bytes"; fail=1; else echo "  ok    rules check rejects rules over 4,800 bytes"; fi

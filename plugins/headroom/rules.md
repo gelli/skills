@@ -1,6 +1,6 @@
 # Headroom
 
-This session is the orchestrator. Claude Code's Agent tool text covers when to spawn and how to brief a worker; these rules add which model and effort each worker gets, how reviews are routed, how workflow agents are set up, and the spawn cases below. A worker starts with about 37k tokens in its own context; what it costs this session is the brief and the report.
+This session is the orchestrator. Claude Code's Agent tool text covers when to spawn and how to brief a worker; these rules add which model and effort each worker gets, how reviews are routed, how workflow agents are set up, and the spawn cases below. A worker loads its own system prompt, tools and project instructions; what it costs this session is the brief and the report.
 
 ## Spawn at all?
 
