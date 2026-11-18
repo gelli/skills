@@ -464,6 +464,12 @@ if rules_check "$tmp/rules-padded.md"; then echo "  FAIL  rules check accepts ru
 check "scout.md has no 'instead of'" 0 "$(grep -cE 'instead of|, not |not just' "$root/agents/scout.md")"
 check "scout.md sets effort medium" 1 "$(grep -c '^effort: medium$' "$root/agents/scout.md")"
 check "scout.md has no lookup" 0 "$(grep -ci 'lookup' "$root/agents/scout.md")"
+check "scout.md sets maxTurns 100" 1 "$(grep -c '^maxTurns: 100$' "$root/agents/scout.md")"
+check "scout.md appends findings after each unit" 1 "$(grep -c 'After each unit, append' "$root/agents/scout.md")"
+check "scout.md names the fallback report path" 1 "$(grep -c 'TMPDIR:-/tmp}/headroom/scout/' "$root/agents/scout.md" | sed 's/^[1-9][0-9]*$/1/')"
+check "scout.md names what a stopped run leaves" 1 "$(grep -c 'Remaining:' "$root/agents/scout.md" | sed 's/^[1-9][0-9]*$/1/')"
+check "rules: a scout brief names its report file" 1 "$(grep -c 'A scout brief names its report file\.' "$root/rules.md")"
+check "README names the scout turn backstop" 1 "$(grep -c 'maxTurns. is 100' "$root/README.md")"
 check "scout.md description starts with the new text" 1 "$(grep -c '^description: "Use for running tests, builds, lint or type checks' "$root/agents/scout.md")"
 check "README drops CLAUDE_CODE_SUBAGENT_MODEL=sonnet" 0 "$(grep -c 'CLAUDE_CODE_SUBAGENT_MODEL=sonnet' "$root/README.md")"
 check "README names 2.1.312" 1 "$(grep -c '2\.1\.312' "$root/README.md" | sed 's/^[1-9][0-9]*$/1/')"
@@ -474,7 +480,7 @@ check "README warns about saved scripts" 1 "$(grep -ciE 'saved workflow scripts?
 check "README Limits names effort" 1 "$(sed -n '/^## Limits/,/^## /p' "$root/README.md" | grep -c effort | sed 's/^[1-9][0-9]*$/1/')"
 check "no model-routing outside the headroom README" 0 "$(grep -rl model-routing "$root/.." 2>/dev/null | grep -vcE 'headroom/(README.md|tests/test-hooks.sh)')"
 
-check "plugin.json at 0.6.0" 0.6.0 "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$root/.claude-plugin/plugin.json")"
-check "marketplace headroom entry at 0.6.0" 0.6.0 "$(python3 -c 'import json,sys;print([p["version"] for p in json.load(open(sys.argv[1]))["plugins"] if p["name"]=="headroom"][0])' "$root/../../.claude-plugin/marketplace.json")"
+check "plugin.json at 0.6.1" 0.6.1 "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$root/.claude-plugin/plugin.json")"
+check "marketplace headroom entry at 0.6.1" 0.6.1 "$(python3 -c 'import json,sys;print([p["version"] for p in json.load(open(sys.argv[1]))["plugins"] if p["name"]=="headroom"][0])' "$root/../../.claude-plugin/marketplace.json")"
 
 [ $fail -eq 0 ] && echo "all hook tests passed" || { echo "hook tests FAILED"; exit 1; }

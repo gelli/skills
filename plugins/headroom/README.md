@@ -13,7 +13,7 @@ Four hooks and one agent:
   - Reading: when read output since the prompt passes the reading budget, the nudge sends the remaining long runs and many-file sweeps to `headroom:scout`. Read, Grep, Glob, WebFetch, WebSearch, MCP tools and Bash count. Bash counts stdout plus stderr, and nothing once the output is persisted to a file.
   - Doing: when the main session edits a third distinct file in the prompt (Edit, Write, NotebookEdit), the nudge names an implementer spawn.
   Both counters restart when the hook input carries a new `prompt_id`. Worker tool calls (hook input with an `agent_id`) never count.
-- **`headroom:scout`** is a Haiku agent that runs at medium effort by default, for single-shape jobs: test and build runs, log reads, many-file searches and reads, and summaries of long material. It has no Edit, Write, NotebookEdit, Agent or Workflow tool and reports in 40 lines or less.
+- **`headroom:scout`** is a Haiku agent that runs at medium effort by default, for single-shape jobs: test and build runs, log reads, many-file searches and reads, and summaries of long material. It has no Edit, Write, NotebookEdit, Agent or Workflow tool and reports in 40 lines or less. On a job with several units it appends its findings to a report file after each unit, at the path the brief names or under `${TMPDIR:-/tmp}/headroom/scout/`, so a run that is stopped early leaves its finished units behind. Its `maxTurns` is 100, a backstop against a looping run; the report file is what bounds the loss.
 
 Nothing blocks except the Agent and Workflow checks. The plugin writes no log; measurement comes from transcripts.
 
