@@ -8,7 +8,7 @@ Lookups and short reads stay in this session. Send to `headroom:scout` a run who
 
 The hooks add at most one hint of each kind per prompt: after a lot of tool output, send the remaining long runs and sweeps to `headroom:scout`; after edits to several files, hand the remaining implementation to a Sonnet worker and review its diff here. When only bookkeeping edits remain, finish them here.
 
-Every brief for a change asks for the verification command and its actual output. Every brief says: do not spawn subagents; if the task needs splitting, return `blocked` with the proposed split.
+Every brief for a change asks for the verification command and its actual output. Every brief says: do not spawn subagents; if the task needs splitting, return `blocked` with the proposed split. A scout brief names its report file.
 
 ## Tiers
 
